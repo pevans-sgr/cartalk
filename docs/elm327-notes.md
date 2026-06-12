@@ -52,6 +52,26 @@ real answer shortly after. Because our transport couples send+receive, `UdsClien
 re-issues the (idempotent) request until a non-pending reply arrives or `pending_timeout`
 (default 5 s) is exhausted.
 
+## Offline development (no adapter, no vehicle)
+
+`cartalk.transport.loopback.loopback_transport(ecus)` returns an opened
+`Elm327Transport` backed by an in-process ELM327 fake. It answers the AT sequence and
+ISO-TP-encodes configured responses into the exact per-frame text a real adapter prints,
+so the transport's addressing and multi-frame reassembly run unchanged:
+
+```python
+from cartalk.transport.loopback import loopback_transport
+from cartalk.protocol.uds import UdsClient
+
+ecus = {(0x18DAF140, "1902FF"): bytes([0x59, 0x02, 0xFF, 0x01, 0x43, 0x00, 0x08])}
+with loopback_transport(ecus) as t:
+    print(UdsClient(t, 0x18DA40F1, 0x18DAF140).read_dtcs())   # [P0143]
+```
+
+This is what the `tests/test_elm327_transport.py` end-to-end tests use. The
+Ircama/ELM327-emulator (`dev` extra) remains an optional *independent* cross-check for
+Phase 2 once an FCA UDS scenario is authored.
+
 ## Open questions to confirm on hardware
 1. Exact 29-bit flow-control header form (`ATFCSH` 3-byte vs 4-byte with `ATCP`).
 2. Whether any FCA modules need an explicit extended session (`0x10 0x03`) before `0x19`

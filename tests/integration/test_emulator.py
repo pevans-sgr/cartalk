@@ -1,12 +1,11 @@
-"""End-to-end test against the ELM327 emulator (skipped when not installed).
+"""Optional independent cross-check against the Ircama/ELM327-emulator (skipped when not
+installed). This is supplementary — the guaranteed end-to-end transport coverage lives in
+``tests/test_elm327_transport.py``, which drives the real ``Elm327Transport`` through the
+in-process loopback (no network, no deps). This file adds a *second*, independent ELM327
+implementation as a cross-check once an FCA UDS scenario is authored in Phase 2.
 
-This exercises the real ELM327 serial command flow without a vehicle by pointing
-``Elm327Transport`` at a pseudo-terminal served by Ircama/ELM327-emulator
+It points ``Elm327Transport`` at a pseudo-terminal served by the emulator
 (``pip install -e '.[dev]'``).
-
-The emulator's default scenarios cover standard OBD-II; a Phase-2 fixture will add the
-FCA UDS ECUs and seeded DTCs this test asserts on. Until that fixture lands, this is a
-connectivity smoke test guarded by availability of the emulator package.
 
 Manual equivalent (what the test automates):
     python3 -m elm -s car            # start emulator, note the /dev/pts/N it prints

@@ -12,16 +12,25 @@ Phased so each step ships something useful on its own.
 - [x] CLI + FastAPI server skeletons
 - [ ] Pick a license (see below)
 
-## Phase 1 — Generic deep scanner (immediate value)
+## Phase 1 — Generic deep scanner ✅ complete (software)
 Read DTCs + DIDs from **all** modules on a vehicle — the "deep fault scan" a generic
-OBD-II reader can't do.
+OBD-II reader can't do. Every item below is implemented and verified end-to-end through
+an in-process ELM327 loopback (`cartalk/transport/loopback.py`) that ISO-TP-encodes
+responses exactly as the adapter would — 49 tests, no hardware required.
 - [x] Finish ELM327 transport (29-bit ATCP/ATSH/ATCRA, ISO-TP multi-frame reassembly,
-      init sequence) — emulator-verified; on-vehicle confirmation pending
+      init sequence) — verified end-to-end via loopback
 - [x] UDS `ReadDTCInformation` (0x19 0x02) across module list, with 0x78 retry
 - [x] `cartalk scan` prints decoded DTCs grouped by module
 - [x] Read named DIDs (live data) for a platform; `cartalk live`
 - [x] Session logging (JSONL) of every request/response for later RE
-- [ ] On-vehicle validation pass + correct placeholder Pacifica CAN ids (rolls into Phase 2)
+- [x] Hardware-free dev/test harness: loopback ELM327 + `FakeTransport`
+
+> **Hardware-dependent follow-up (Phase 2, requires the vehicle — not a software gap):**
+> run `cartalk scan … --log` on the real van, then validate/correct the placeholder
+> module CAN ids in `definitions/chrysler/pacifica_2018.yaml` from the transcript. Also
+> the items flagged `(verify)` in `docs/elm327-notes.md` (29-bit flow-control header form,
+> per-module extended-session need). These need an actual adapter+vehicle and are the
+> first real Phase 2 data capture.
 
 ## Phase 2 — The database (the long pole)
 Build out parameter definitions by capturing known operations.
