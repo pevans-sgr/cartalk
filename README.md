@@ -58,7 +58,20 @@ cartalk db list             # list bundled vehicle definitions
 cartalk scan --adapter elm327 --port /dev/ttyUSB0 --vehicle chrysler/pacifica_2018
 ```
 
-The DTC decoder and database loader run with **no hardware and no third-party deps**:
+### Web UI (incl. on an Android phone via USB-OTG)
+
+```bash
+pip install -e '.[api]'     # web server + UI
+cartalk serve --adapter loopback     # demo data, no hardware — open http://localhost:8000
+```
+
+To run it **on your phone** with the adapter on USB-OTG, see
+[`docs/android-termux.md`](docs/android-termux.md): the engine runs in Termux and serves
+the UI to the phone's browser. Fallback for any adapter on a TCP socket (WiFi / bridge):
+`cartalk serve --adapter tcp --tcp HOST:PORT`.
+
+The DTC decoder, database loader, transports, and scan engine run with **no hardware**
+(the transport is verified end-to-end via an in-process ELM327 loopback):
 
 ```bash
 python3 -m unittest discover -s tests -v

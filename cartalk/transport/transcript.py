@@ -16,18 +16,24 @@ from .base import Transport
 
 
 class TranscriptTransport(Transport):
-    def __init__(self, inner: Transport, path: str):
+    def __init__(self, inner: Transport, path: str, own_inner: bool = True):
         self.inner = inner
         self.path = path
+        # When wrapping a shared/persistent transport (e.g. a reused android-usb
+        # connection), set own_inner=False so open()/close() only manage the log file
+        # and leave the underlying transport's lifecycle to its owner.
+        self.own_inner = own_inner
         self._fh = None
 
     def open(self) -> None:
-        self.inner.open()
+        if self.own_inner:
+            self.inner.open()
         self._fh = open(self.path, "a", encoding="utf-8")
 
     def close(self) -> None:
         try:
-            self.inner.close()
+            if self.own_inner:
+                self.inner.close()
         finally:
             if self._fh is not None:
                 self._fh.close()

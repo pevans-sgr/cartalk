@@ -126,6 +126,27 @@ def _cmd_live(args) -> int:
     return 0
 
 
+def _cmd_serve(args) -> int:
+    # Configure the ASGI app via environment, then run uvicorn.
+    import os
+    os.environ["CARTALK_ADAPTER"] = args.adapter
+    if args.usb_fd is not None:
+        os.environ["CARTALK_USB_FD"] = str(args.usb_fd)
+    if args.tcp:
+        os.environ["CARTALK_TCP"] = args.tcp
+    if args.port_path:
+        os.environ["CARTALK_PORT"] = args.port_path
+    try:
+        import uvicorn
+    except ImportError:
+        print("serve needs the api extra: pip install 'cartalk[api]'", file=sys.stderr)
+        return 1
+    print(f"cartalk serving on http://{args.host}:{args.port}  (adapter: {args.adapter})")
+    print("open that URL in your phone's browser")
+    uvicorn.run("cartalk.api.server:app", host=args.host, port=args.port, log_level="info")
+    return 0
+
+
 def _cmd_diagnose(args) -> int:
     from .ai.diagnose import diagnose
 
@@ -188,6 +209,16 @@ def build_parser() -> argparse.ArgumentParser:
     live.add_argument("--json", action="store_true", help="emit JSON")
     live.add_argument("--log", metavar="FILE", help="append a JSONL transcript of every exchange")
     live.set_defaults(func=_cmd_live)
+
+    serve = sub.add_parser("serve", help="run the web UI + HTTP API (for the phone browser)")
+    serve.add_argument("--host", default="127.0.0.1")
+    serve.add_argument("--port", type=int, default=8000)
+    serve.add_argument("--adapter", default="loopback",
+                       choices=["loopback", "android-usb", "tcp", "elm327"])
+    serve.add_argument("--usb-fd", type=int, help="USB file descriptor (android-usb; set by termux-serve.sh)")
+    serve.add_argument("--tcp", metavar="HOST:PORT", help="WiFi/bridge adapter address (tcp)")
+    serve.add_argument("--port-path", metavar="PATH", help="serial port (elm327)")
+    serve.set_defaults(func=_cmd_serve)
 
     diag = sub.add_parser("diagnose", help="AI-assisted diagnosis of a scan JSON file")
     diag.add_argument("scan_file")

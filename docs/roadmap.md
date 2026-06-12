@@ -32,6 +32,17 @@ responses exactly as the adapter would — 49 tests, no hardware required.
 > per-module extended-session need). These need an actual adapter+vehicle and are the
 > first real Phase 2 data capture.
 
+### On-vehicle access path (Android web UI) — ready for the van
+Deployment for testing Phase 1 on the actual Pacifica from a web UI, with the vLinker FS
+on the phone's USB-OTG port. Engine runs in Termux; UI served to the phone's browser.
+See [`android-termux.md`](android-termux.md).
+- [x] Stream seam: `Elm327Transport(stream=…)` so backends are pluggable byte streams
+- [x] Android FTDI transport (`transport/ftdi_termux.py`, termux-usb fd → pyftdi)
+- [x] TCP transport (`transport/tcp.py`) — WiFi/bridge fallback, no engine changes
+- [x] Minimal web UI (`cartalk/webui/`) + `cartalk serve` + `scripts/termux-serve.sh`
+- [x] Pre-flight `--adapter loopback` self-test (works on the phone, no hardware)
+- [ ] **On-device validation of the termux-usb→FTDI link** (only testable on the phone+van)
+
 ## Phase 2 — The database (the long pole)
 Build out parameter definitions by capturing known operations.
 - [ ] SocketCAN transport (panda / Macchina / CANable)

@@ -81,7 +81,6 @@ class LoopbackElm327Serial:
 
 def loopback_transport(ecus: dict[tuple[int, str], bytes]) -> Elm327Transport:
     """Build an opened ``Elm327Transport`` backed by a loopback ELM327 (no hardware)."""
-    transport = Elm327Transport("loopback")
-    transport._serial = LoopbackElm327Serial(ecus)
-    transport._init_adapter()
+    transport = Elm327Transport.from_stream(LoopbackElm327Serial(ecus))
+    transport.open()
     return transport

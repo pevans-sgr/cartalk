@@ -28,28 +28,45 @@ def _is_29bit(can_id: int) -> bool:
 
 
 class Elm327Transport(Transport):
-    def __init__(self, port: str, baudrate: int = 115200):
+    def __init__(self, port: str | None = None, baudrate: int = 115200, stream=None):
+        """Drive an ELM327 over a byte stream.
+
+        Pass ``port`` to open a real pyserial device, or inject any ``ByteStream``
+        (loopback / FTDI / TCP / a fake) via ``stream`` — the ELM/ISO-TP logic is identical
+        either way. Exactly one of ``port`` / ``stream`` is used.
+        """
         self.port = port
         self.baudrate = baudrate
-        self._serial = None
+        self._stream = stream              # injected ByteStream, if any
+        self._serial = None                # active stream once opened
         self._proto: str | None = None     # currently selected ATSP value
         self._target: tuple[int, int] | None = None  # last (request_id, response_id)
+
+    @classmethod
+    def from_stream(cls, stream) -> "Elm327Transport":
+        """Build a transport over an already-constructed ByteStream."""
+        return cls(stream=stream)
 
     # -- lifecycle ----------------------------------------------------------
 
     def open(self) -> None:
         if self._serial is not None:
             return
-        try:
-            import serial  # pyserial — optional dependency
-        except ImportError as e:  # pragma: no cover - optional extra
-            raise TransportError(
-                "ELM327 transport needs pyserial: pip install 'cartalk[elm327]'"
-            ) from e
-        try:
-            self._serial = serial.Serial(self.port, self.baudrate, timeout=2.0)
-        except Exception as e:  # pragma: no cover - hardware dependent
-            raise TransportError(f"could not open {self.port}: {e}") from e
+        if self._stream is not None:
+            self._serial = self._stream
+        else:
+            if not self.port:
+                raise TransportError("Elm327Transport needs a port or an injected stream")
+            try:
+                import serial  # pyserial — optional dependency
+            except ImportError as e:  # pragma: no cover - optional extra
+                raise TransportError(
+                    "ELM327 transport needs pyserial: pip install 'cartalk[elm327]'"
+                ) from e
+            try:
+                self._serial = serial.Serial(self.port, self.baudrate, timeout=2.0)
+            except Exception as e:  # pragma: no cover - hardware dependent
+                raise TransportError(f"could not open {self.port}: {e}") from e
         self._init_adapter()
 
     def close(self) -> None:
