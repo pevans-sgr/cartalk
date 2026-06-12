@@ -1,0 +1,51 @@
+platform: chrysler/pacifica_2018
+make: Chrysler
+model: Pacifica
+year_from: 2017
+year_to: 2020
+notes: >
+  2018+ requires a Security Gateway (SGW) bypass cable for any write/clear operation;
+  reads work without it. Module CAN ids and DIDs below are starter values and must be
+  verified against the vehicle (Phase 2 sniffing) before relying on them — they are
+  placeholders to exercise the schema, NOT confirmed addresses.
+
+modules:
+  - id: bcm
+    name: Body Control Module
+    request_id: 0x18DA40F1
+    response_id: 0x18DAF140
+    protocol: uds
+    dids:
+      - id: 0xF190
+        name: VIN
+        kind: live
+        decode: ascii
+      # Auto stop-start (ESS) configuration — the first real write target (Phase 3).
+      # DID and encoding are UNVERIFIED placeholders pending reverse engineering.
+      - id: 0x2001
+        name: Auto Stop-Start Configured
+        kind: config
+        decode: enum:0=disabled,1=enabled
+    routines:
+      - id: 0x0203
+        name: Proxi Configuration Alignment
+    dtcs:
+      B1601: "Key/transponder not programmed"
+
+  - id: abs
+    name: Anti-lock Brake System
+    request_id: 0x18DA28F1
+    response_id: 0x18DAF128
+    protocol: uds
+
+  - id: orc
+    name: Occupant Restraint Controller (Airbag)
+    request_id: 0x18DA58F1
+    response_id: 0x18DAF158
+    protocol: uds
+
+  - id: cluster
+    name: Instrument Cluster
+    request_id: 0x18DA60F1
+    response_id: 0x18DAF160
+    protocol: uds

@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cartalk"
+version = "0.0.1"
+description = "Open, extensible diagnostics & configuration platform for FCA / Stellantis vehicles"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "TBD" }
+authors = [{ name = "cartalk contributors" }]
+
+# Core runtime deps are intentionally light. The DTC decoder and DB loader need
+# none of these (stdlib only); they're for the transport/UDS/AI/API layers.
+dependencies = [
+    "pyyaml>=6.0",          # database definition files
+]
+
+[project.optional-dependencies]
+# Phase 1: ELM327-class adapters. Raw serial only — python-OBD targets standard OBD-II
+# PIDs on the powertrain, not arbitrary UDS to arbitrary module addresses.
+elm327 = ["pyserial>=3.5"]
+# Phase 2: raw CAN + UDS stack (SocketCAN / panda / Macchina)
+can = ["python-can>=4.3", "can-isotp>=2.0", "udsoncan>=1.23"]
+# AI-assisted diagnostics
+ai = ["anthropic>=0.49"]
+# HTTP/WebSocket API for the web UI
+api = ["fastapi>=0.110", "uvicorn[standard]>=0.29"]
+# Everything, for development. ELM327-emulator drives hardware-free integration tests.
+dev = [
+    "cartalk[elm327,can,ai,api]",
+    "pytest>=8.0",
+    "ELM327-emulator>=3.0",
+]
+
+[project.scripts]
+cartalk = "cartalk.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["cartalk*"]
+
+[tool.setuptools.package-data]
+"cartalk.db" = ["definitions/**/*.yaml", "definitions/**/*.json"]
