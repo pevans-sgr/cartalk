@@ -18,6 +18,12 @@ function setStatus(msg, isError = false) {
   el.classList.toggle("err", !!isError);
 }
 
+function log(msg) {
+  const pre = $("log");
+  pre.textContent += msg + "\n";
+  $("logBox").open = true;
+}
+
 function renderModule(m) {
   const card = document.createElement("div");
   card.className = "module";
@@ -43,8 +49,8 @@ function renderModule(m) {
 async function connect() {
   try {
     setStatus("Select your OBD adapter in the browser prompt…");
-    const ftdi = await requestFtdiPort();
-    const e = new Elm327(ftdi);
+    const ftdi = await requestFtdiPort(115200, log);
+    const e = new Elm327(ftdi, log);
     await e.open();
     elm = e;
     $("conn").textContent = "connected";

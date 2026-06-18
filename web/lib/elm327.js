@@ -11,15 +11,18 @@ const hex = (u8) => Array.from(u8).map((b) => b.toString(16).padStart(2, "0")).j
 
 export class Elm327 {
   /** @param {{open?:Function, write:Function, read:Function, resetInput?:Function, close?:Function}} stream */
-  constructor(stream) {
+  constructor(stream, onLog = null) {
     this.stream = stream;
+    this.onLog = onLog || (() => {});
     this._proto = null;
     this._target = null;
   }
 
   async open() {
     if (this.stream.open) await this.stream.open();
-    for (const cmd of ["ATZ", "ATE0", "ATL0", "ATS0", "ATH1"]) await this._command(cmd);
+    // ATZ resets the ELM327 and can take >1s; give it room. Others are quick.
+    await this._command("ATZ", 5000);
+    for (const cmd of ["ATE0", "ATL0", "ATS0", "ATH1"]) await this._command(cmd);
   }
 
   async close() {
@@ -50,11 +53,16 @@ export class Elm327 {
     let acc = "";
     const deadline = Date.now() + timeoutMs;
     while (!acc.includes(">")) {
-      if (Date.now() > deadline) throw new Error(`adapter timeout on command: ${cmd}`);
+      if (Date.now() > deadline) {
+        this.onLog(`TX ${cmd} → timeout (got ${acc.length ? JSON.stringify(acc) : "nothing"})`);
+        throw new Error(`adapter timeout on command: ${cmd}`);
+      }
       const chunk = await this.stream.read(256);
       if (chunk && chunk.length) acc += dec.decode(chunk);
     }
-    return acc.replace(/>/g, "").trim();
+    const reply = acc.replace(/>/g, "").trim();
+    this.onLog(`TX ${cmd} → ${JSON.stringify(reply).slice(0, 80)}`);
+    return reply;
   }
 
   async _selectProtocol(proto) {

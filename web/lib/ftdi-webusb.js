@@ -14,9 +14,11 @@ export const FTDI_FILTERS = [{ vendorId: FTDI_VENDOR_ID }];
 
 // FTDI control requests.
 const REQ_RESET = 0x00;
+const REQ_SET_MODEM_CTRL = 0x01;                 // DTR/RTS line state
+const REQ_SET_FLOW_CTRL = 0x02;
 const REQ_SET_BAUDRATE = 0x03;
 const REQ_SET_DATA = 0x04;
-const TYPE_VENDOR_OUT = 0x40;                    // host-to-device, vendor, device
+const REQ_SET_LATENCY = 0x09;
 
 const FRAC_CODE = [0, 3, 2, 4, 1, 5, 6, 7];
 
@@ -53,22 +55,23 @@ export function stripFtdiStatus(data, packetSize = 64) {
 const enc = new TextEncoder();
 
 /** Prompt the user to pick an FTDI adapter and return an (unopened) FtdiWebUsb. */
-export async function requestFtdiPort(baudrate = 115200) {
+export async function requestFtdiPort(baudrate = 115200, onLog = null) {
   if (!("usb" in navigator)) {
     throw new Error("WebUSB not available — use Chrome on Android/desktop over HTTPS");
   }
   const device = await navigator.usb.requestDevice({ filters: FTDI_FILTERS });
-  return new FtdiWebUsb(device, baudrate);
+  return new FtdiWebUsb(device, baudrate, 2000, onLog);
 }
 
 export class FtdiWebUsb {
-  constructor(device, baudrate = 115200, timeoutMs = 2000) {
+  constructor(device, baudrate = 115200, timeoutMs = 2000, onLog = null) {
     this.device = device;
     this.baudrate = baudrate;
     this.timeout = timeoutMs;
+    this.onLog = onLog || (() => {});
     this.interfaceNumber = 0;
-    this.epIn = 0x81;
-    this.epOut = 0x02;
+    this.epIn = 1;
+    this.epOut = 2;
     this._buf = [];
   }
 
@@ -82,10 +85,18 @@ export class FtdiWebUsb {
       if (ep.direction === "in") this.epIn = ep.endpointNumber;
       if (ep.direction === "out") this.epOut = ep.endpointNumber;
     }
-    await this._control(REQ_RESET, 0x0000);                       // reset
+    const port = this.interfaceNumber + 1;                        // FTDI wIndex port (A=1)
+    this.onLog(`USB ${this.device.productName || "device"}: iface ${this.interfaceNumber}, epIn ${this.epIn}, epOut ${this.epOut}`);
+    await this._control(REQ_RESET, 0x0000, port);                 // reset SIO
+    await this._control(REQ_SET_LATENCY, 4, port);                // low latency timer (ms)
     const { value, index } = encodeBaudRate(this.baudrate);
-    await this._control(REQ_SET_BAUDRATE, value, index);          // baud
-    await this._control(REQ_SET_DATA, 0x0008);                    // 8 data bits, no parity, 1 stop
+    await this._control(REQ_SET_BAUDRATE, value, index || port);  // baud
+    await this._control(REQ_SET_DATA, 0x0008, port);              // 8 data bits, no parity, 1 stop
+    await this._control(REQ_SET_FLOW_CTRL, 0x0000, port);         // no flow control
+    // Assert DTR and RTS — many ELM327 clones stay held in reset until these go high.
+    await this._control(REQ_SET_MODEM_CTRL, 0x0101, port);        // DTR = 1
+    await this._control(REQ_SET_MODEM_CTRL, 0x0202, port);        // RTS = 1
+    this.onLog("FTDI configured (baud 115200, DTR+RTS asserted)");
   }
 
   _control(request, value, index = 0) {
@@ -105,14 +116,21 @@ export class FtdiWebUsb {
   /** Read up to `size` bytes (status bytes already stripped), honoring this.timeout. */
   async read(size) {
     const deadline = Date.now() + this.timeout;
+    let polls = 0, statusOnly = 0, dataPolls = 0;
     while (this._buf.length < size && Date.now() < deadline) {
       const result = await this.device.transferIn(this.epIn, 64);
-      if (result.data && result.data.byteLength > 2) {
-        const raw = new Uint8Array(result.data.buffer);
-        this._buf.push(...stripFtdiStatus(raw, 64));
+      polls++;
+      const len = result.data ? result.data.byteLength : 0;
+      if (len > 2) {
+        dataPolls++;
+        this._buf.push(...stripFtdiStatus(new Uint8Array(result.data.buffer), 64));
       } else {
+        statusOnly++;
         await new Promise((r) => setTimeout(r, 5));
       }
+    }
+    if (dataPolls === 0 && polls > 0) {
+      this.onLog(`read: ${polls} IN polls returned only status bytes — no UART data from the ELM327`);
     }
     return Uint8Array.from(this._buf.splice(0, size));
   }
