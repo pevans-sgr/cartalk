@@ -93,7 +93,8 @@ async function connect() {
     $("conn").classList.add("on");
     $("scanBtn").disabled = false;
     $("testBtn").disabled = false;
-    setStatus("Adapter connected. Try 'Test connection' first, then scan.");
+    $("discoverBtn").disabled = false;
+    setStatus("Adapter connected. Try 'Test connection', then 'Discover modules'.");
   } catch (err) {
     setStatus(`Connect failed: ${err.message}`, true);
   } finally {
@@ -123,6 +124,42 @@ async function testConnection() {
     setStatus("Test failed: " + e.message, true);
   } finally {
     $("testBtn").disabled = false;
+    setBusy(false);
+  }
+}
+
+async function discoverModules() {
+  if (!elm) return;
+  setBusy(true);
+  $("discoverBtn").disabled = true;
+  $("results").innerHTML = "";
+  setStatus("Broadcasting to all modules (functional 0x18DB33F1)…");
+  try {
+    const raw = await elm.discoverModules();
+    log("discover (1003 functional) → " + JSON.stringify(raw));
+    // Each responder appears as 0x18DAF1xx; xx is the module address.
+    const ids = [...new Set([...raw.matchAll(/18DAF1([0-9A-Fa-f]{2})/g)].map((m) => m[1].toUpperCase()))];
+    const out = $("results");
+    if (ids.length) {
+      const reqs = ids.map((xx) => `0x18DA${xx}F1`);
+      out.innerHTML = `<div class="module"><h2><span>Discovered ${ids.length} module(s)</span></h2>`
+        + ids.map((xx) => `<div class="dtc"><code>0x18DAF1${xx}</code><span>module addr 0x${xx} — request 0x18DA${xx}F1</span></div>`).join("")
+        + `</div>`;
+      setStatus(`✅ Found ${ids.length} responding module(s). Send this to me and I'll set the real addresses.`);
+      // Make it sendable via the existing GitHub button.
+      const t = new Transcript();
+      t.rows.push({ kind: "discovery", responders: ids.map((xx) => `0x18DAF1${xx}`), raw });
+      lastTranscript = t;
+      lastSummary = `Module discovery (functional 0x18DB33F1 → 1003)\nResponders: ${ids.map((xx) => "0x18DAF1" + xx).join(", ")}`;
+      $("downloadLink").href = URL.createObjectURL(t.toBlob());
+      $("transcript").hidden = false;
+    } else {
+      setStatus("No module answered the broadcast. The enhanced bus/addressing may differ — see the log; we'll try 11-bit next.", true);
+    }
+  } catch (e) {
+    setStatus("Discover failed: " + e.message, true);
+  } finally {
+    $("discoverBtn").disabled = false;
     setBusy(false);
   }
 }
@@ -232,6 +269,7 @@ async function init() {
   }
   $("connectBtn").addEventListener("click", connect);
   $("testBtn").addEventListener("click", testConnection);
+  $("discoverBtn").addEventListener("click", discoverModules);
   $("scanBtn").addEventListener("click", runScan);
   $("sendBtn").addEventListener("click", sendToGithub);
 }

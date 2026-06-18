@@ -62,6 +62,26 @@ export class Elm327 {
     return { pids, dtcs };
   }
 
+  /**
+   * Discover responding modules by broadcasting a functional request (0x18DB33F1) and
+   * accepting every physical response (0x18DAF1xx). Returns the raw ELM text; the caller
+   * parses the responder CAN ids. This finds the vehicle's real module addresses instead
+   * of relying on the (placeholder) database.
+   */
+  async discoverModules() {
+    await this._command("ATSP7");        // 29-bit, 500k
+    await this._command("ATAT0");        // fixed timing (don't cut off extra responders)
+    await this._command("ATST64");       // ~400ms response window
+    await this._command("ATCP18");       // priority byte 0x18
+    await this._command("ATSHDB33F1");   // functional (broadcast) request header
+    await this._command("ATCM1FFFFF00"); // receive mask: match 0x18DAF1xx
+    await this._command("ATCF18DAF100"); // receive filter: any module response
+    await this._command("ATFCSHDB33F1"); // flow-control header
+    this._proto = "7";
+    this._target = null;
+    return this._command("1003", 8000);  // extended session — broadly answered
+  }
+
   async _command(cmd, timeoutMs = 2000) {
     if (this.stream.resetInput) await this.stream.resetInput();
     await this.stream.write(enc.encode(cmd + "\r"));
