@@ -14,6 +14,35 @@ let elm = null;            // connected Elm327 instance
 let lastTranscript = null; // for the download + send buttons
 let lastSummary = "";
 
+// Busy = a connect/scan is in progress; defer any auto-reload until it finishes so an
+// update never interrupts talking to the car.
+let busy = false;
+let pendingReload = false;
+function setBusy(v) {
+  busy = v;
+  if (!busy && pendingReload) location.reload();
+}
+
+// Service worker: network-first (always latest online), offline fallback, and auto-reload
+// when a new version deploys — so no more manual hard-refresh.
+if ("serviceWorker" in navigator) {
+  const hadController = !!navigator.serviceWorker.controller;
+  let refreshing = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (refreshing || !hadController) return;   // ignore the initial claim on first load
+    if (busy) { pendingReload = true; return; } // don't reload mid-scan
+    refreshing = true;
+    location.reload();
+  });
+  window.addEventListener("load", async () => {
+    try {
+      const reg = await navigator.serviceWorker.register("sw.js");
+      setInterval(() => reg.update(), 60_000);
+      document.addEventListener("visibilitychange", () => { if (!document.hidden) reg.update(); });
+    } catch (_) { /* SW optional; app still works */ }
+  });
+}
+
 function setStatus(msg, isError = false) {
   const el = $("status");
   el.hidden = !msg;
@@ -50,6 +79,7 @@ function renderModule(m) {
 }
 
 async function connect() {
+  setBusy(true);
   try {
     if (elm) { try { await elm.close(); } catch (_) {} elm = null; }
     const baud = parseInt($("baud").value, 10);
@@ -65,11 +95,14 @@ async function connect() {
     setStatus("Adapter connected. Pick a vehicle and scan.");
   } catch (err) {
     setStatus(`Connect failed: ${err.message}`, true);
+  } finally {
+    setBusy(false);
   }
 }
 
 async function runScan() {
   if (!elm) return;
+  setBusy(true);
   $("scanBtn").disabled = true;
   $("results").innerHTML = "";
   $("transcript").hidden = true;
@@ -93,6 +126,7 @@ async function runScan() {
     setStatus(`Scan failed: ${err.message}`, true);
   } finally {
     $("scanBtn").disabled = false;
+    setBusy(false);
   }
 }
 
