@@ -63,23 +63,36 @@ export class Elm327 {
   }
 
   /**
-   * Discover responding modules by broadcasting a functional request (0x18DB33F1) and
-   * accepting every physical response (0x18DAF1xx). Returns the raw ELM text; the caller
-   * parses the responder CAN ids. This finds the vehicle's real module addresses instead
-   * of relying on the (placeholder) database.
+   * Discover modules by sweeping the 29-bit physical address space: send a request to each
+   * 0x18DAxxF1 and keep the addresses that reply on 0x18DAF1xx. FCA modules answer physical
+   * requests but not the ISO functional broadcast, so this is the reliable way to learn the
+   * real addresses. Per-probe logging is suppressed (256 probes); only responders matter.
+   * @param {(addr:number, foundCount:number)=>void} onProgress
+   * @returns {Promise<{addr:string, raw:string}[]>}
    */
-  async discoverModules() {
-    await this._command("ATSP7");        // 29-bit, 500k
-    await this._command("ATAT0");        // fixed timing (don't cut off extra responders)
-    await this._command("ATST64");       // ~400ms response window
-    await this._command("ATCP18");       // priority byte 0x18
-    await this._command("ATSHDB33F1");   // functional (broadcast) request header
-    await this._command("ATCM1FFFFF00"); // receive mask: match 0x18DAF1xx
-    await this._command("ATCF18DAF100"); // receive filter: any module response
-    await this._command("ATFCSHDB33F1"); // flow-control header
+  async discoverModules(onProgress) {
+    await this._command("ATSP7");   // 29-bit, 500k
+    await this._command("ATAT0");   // fixed timing
+    await this._command("ATST20");  // ~128ms response window → fast NO DATA on empty addrs
+    await this._command("ATCP18");  // priority byte 0x18
     this._proto = "7";
     this._target = null;
-    return this._command("1003", 8000);  // extended session — broadly answered
+    const found = [];
+    this._quiet = true;
+    try {
+      for (let xx = 0; xx <= 0xff; xx++) {
+        const hx = xx.toString(16).toUpperCase().padStart(2, "0");
+        await this._command(`ATSHDA${hx}F1`);
+        await this._command(`ATCRA18DAF1${hx}`);
+        let r = "";
+        try { r = await this._command("1003", 1500); } catch (_) { r = ""; }
+        if (r.toUpperCase().includes(`18DAF1${hx}`)) found.push({ addr: hx, raw: r });
+        if (onProgress) onProgress(xx, found.length);
+      }
+    } finally {
+      this._quiet = false;
+    }
+    return found;
   }
 
   async _command(cmd, timeoutMs = 2000) {
@@ -89,14 +102,14 @@ export class Elm327 {
     const deadline = Date.now() + timeoutMs;
     while (!acc.includes(">")) {
       if (Date.now() > deadline) {
-        this.onLog(`TX ${cmd} → timeout (got ${acc.length ? JSON.stringify(acc) : "nothing"})`);
+        if (!this._quiet) this.onLog(`TX ${cmd} → timeout (got ${acc.length ? JSON.stringify(acc) : "nothing"})`);
         throw new Error(`adapter timeout on command: ${cmd}`);
       }
       const chunk = await this.stream.read(256);
       if (chunk && chunk.length) acc += dec.decode(chunk);
     }
     const reply = acc.replace(/>/g, "").trim();
-    this.onLog(`TX ${cmd} → ${JSON.stringify(reply).slice(0, 80)}`);
+    if (!this._quiet) this.onLog(`TX ${cmd} → ${JSON.stringify(reply).slice(0, 80)}`);
     return reply;
   }
 

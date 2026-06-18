@@ -139,22 +139,25 @@ async function discoverModules() {
   setBusy(true);
   $("discoverBtn").disabled = true;
   $("results").innerHTML = "";
-  setStatus("Broadcasting to all modules (functional 0x18DB33F1)…");
+  setStatus("Sweeping physical addresses 0x18DA00F1…0xFFF1 (about a minute)…");
   try {
-    const raw = await elm.discoverModules();
-    log("discover (1003 functional) → " + JSON.stringify(raw));
-    // Each responder appears as 0x18DAF1xx; xx is the module address.
-    const ids = [...new Set([...raw.matchAll(/18DAF1([0-9A-Fa-f]{2})/g)].map((m) => m[1].toUpperCase()))];
-    const out = $("results");
-    if (ids.length) {
-      const reqs = ids.map((xx) => `0x18DA${xx}F1`);
-      out.innerHTML = `<div class="module"><h2><span>Discovered ${ids.length} module(s)</span></h2>`
-        + ids.map((xx) => `<div class="dtc"><code>0x18DAF1${xx}</code><span>module addr 0x${xx} — request 0x18DA${xx}F1</span></div>`).join("")
+    const found = await elm.discoverModules((xx, n) => {
+      if (xx % 16 === 0 || n) {
+        setStatus(`Probing modules… 0x${xx.toString(16).toUpperCase().padStart(2, "0")} / FF · ${n} found`);
+      }
+    });
+    log(`physical 29-bit sweep complete: ${found.length} module(s) responded`);
+    found.forEach((f) => log(`  module 0x${f.addr} (resp 0x18DAF1${f.addr}) → ${JSON.stringify(f.raw).slice(0, 90)}`));
+    if (found.length) {
+      $("results").innerHTML = `<div class="module"><h2><span>Discovered ${found.length} module(s)</span></h2>`
+        + found.map((f) => `<div class="dtc"><code>0x18DA${f.addr}F1</code><span>module addr 0x${f.addr}</span></div>`).join("")
         + `</div>`;
-      setStatus(`✅ Found ${ids.length} responding module(s). Send the log and I'll set the real addresses.`);
-      lastSummary = `Module discovery (functional 0x18DB33F1 → 1003)\nResponders: ${ids.map((xx) => "0x18DAF1" + xx).join(", ")}`;
+      setStatus(`✅ Found ${found.length} module(s). Send the log and I'll name them and set the real addresses.`);
+      lastSummary = "Physical 29-bit address sweep\nResponders (request → reply):\n"
+        + found.map((f) => `  0x18DA${f.addr}F1 → ${f.raw.replace(/\s+/g, " ").trim()}`).join("\n");
     } else {
-      setStatus("No module answered the broadcast. The enhanced bus/addressing may differ — see the log; we'll try 11-bit next.", true);
+      setStatus("No module answered physical 29-bit either. Next we try an 11-bit sweep — send the log.", true);
+      lastSummary = "Physical 29-bit sweep: 0 responders (only generic 11-bit OBD works on this bus).";
     }
   } catch (e) {
     setStatus("Discover failed: " + e.message, true);
