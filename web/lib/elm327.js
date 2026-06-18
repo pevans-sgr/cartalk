@@ -1,0 +1,86 @@
+// ELM327 command layer (browser) — async port of cartalk/transport/elm327.py.
+// Drives any async byte stream (FtdiWebUsb, or a fake in tests): sets per-module 29-bit
+// addressing, sends the request, reads to the '>' prompt, and reassembles ISO-TP frames.
+
+import { reassemble, ID_LEN_29BIT, ID_LEN_11BIT, FrameError } from "./isotp.js";
+
+const enc = new TextEncoder();
+const dec = new TextDecoder();
+const is29bit = (id) => id > 0x7ff;
+const hex = (u8) => Array.from(u8).map((b) => b.toString(16).padStart(2, "0")).join("").toUpperCase();
+
+export class Elm327 {
+  /** @param {{open?:Function, write:Function, read:Function, resetInput?:Function, close?:Function}} stream */
+  constructor(stream) {
+    this.stream = stream;
+    this._proto = null;
+    this._target = null;
+  }
+
+  async open() {
+    if (this.stream.open) await this.stream.open();
+    for (const cmd of ["ATZ", "ATE0", "ATL0", "ATS0", "ATH1"]) await this._command(cmd);
+  }
+
+  async close() {
+    if (this.stream.close) await this.stream.close();
+  }
+
+  /** Send UDS/KWP payload to a module, return the reassembled response bytes. */
+  async request(reqId, respId, payload) {
+    await this._setTarget(reqId, respId);
+    const raw = await this._command(hex(payload));
+    const lines = raw.split(/[\r\n]+/).map((s) => s.trim()).filter(Boolean);
+    const idLen = is29bit(respId) ? ID_LEN_29BIT : ID_LEN_11BIT;
+    let frames;
+    try {
+      frames = reassemble(lines, idLen);
+    } catch (e) {
+      if (e instanceof FrameError) throw new Error(e.message);
+      throw e;
+    }
+    if (frames.has(respId)) return frames.get(respId);
+    if (frames.size === 1) return [...frames.values()][0];
+    throw new Error(`no response from 0x${respId.toString(16)}`);
+  }
+
+  async _command(cmd, timeoutMs = 2000) {
+    if (this.stream.resetInput) await this.stream.resetInput();
+    await this.stream.write(enc.encode(cmd + "\r"));
+    let acc = "";
+    const deadline = Date.now() + timeoutMs;
+    while (!acc.includes(">")) {
+      if (Date.now() > deadline) throw new Error(`adapter timeout on command: ${cmd}`);
+      const chunk = await this.stream.read(256);
+      if (chunk && chunk.length) acc += dec.decode(chunk);
+    }
+    return acc.replace(/>/g, "").trim();
+  }
+
+  async _selectProtocol(proto) {
+    if (this._proto !== proto) {
+      await this._command(`ATSP${proto}`);
+      this._proto = proto;
+      this._target = null;
+    }
+  }
+
+  async _setTarget(reqId, respId) {
+    if (this._target === `${reqId}:${respId}`) return;
+    if (is29bit(reqId)) {
+      await this._selectProtocol("7");
+      const priority = (reqId >> 24) & 0xff;
+      const lower3 = reqId & 0xffffff;
+      await this._command(`ATCP${priority.toString(16).toUpperCase().padStart(2, "0")}`);
+      await this._command(`ATSH${lower3.toString(16).toUpperCase().padStart(6, "0")}`);
+      await this._command(`ATCRA${respId.toString(16).toUpperCase().padStart(8, "0")}`);
+      await this._command(`ATFCSH${lower3.toString(16).toUpperCase().padStart(6, "0")}`);
+      await this._command("ATFCSM1");
+    } else {
+      await this._selectProtocol("6");
+      await this._command(`ATSH${reqId.toString(16).toUpperCase().padStart(3, "0")}`);
+      await this._command(`ATCRA${respId.toString(16).toUpperCase().padStart(3, "0")}`);
+    }
+    this._target = `${reqId}:${respId}`;
+  }
+}

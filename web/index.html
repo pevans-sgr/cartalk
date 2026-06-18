@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>cartalk</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>cartalk</h1>
+    <span id="conn" class="badge">not connected</span>
+  </header>
+
+  <main>
+    <p id="unsupported" class="status err" hidden>
+      This browser has no WebUSB. Use <strong>Chrome on Android</strong> (or desktop Chrome),
+      over HTTPS.
+    </p>
+
+    <section class="controls">
+      <label for="vehicle">Vehicle</label>
+      <select id="vehicle"></select>
+      <label class="check"><input type="checkbox" id="readData"> read live data</label>
+      <div class="buttons">
+        <button id="connectBtn">Connect adapter</button>
+        <button id="scanBtn" disabled>Scan all modules</button>
+      </div>
+    </section>
+
+    <section id="status" class="status" hidden></section>
+    <section id="results"></section>
+
+    <footer id="transcript" hidden>
+      <a id="downloadLink" href="#" download="cartalk-session.jsonl">⤓ Download session transcript (.jsonl)</a>
+    </footer>
+
+    <p class="fineprint">
+      Plug the FTDI OBD adapter into the phone's USB-OTG port, tap <em>Connect adapter</em>,
+      and grant access. Everything runs in your browser — no app, no server, nothing leaves
+      the phone.
+    </p>
+  </main>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

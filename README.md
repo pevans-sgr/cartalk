@@ -58,17 +58,22 @@ cartalk db list             # list bundled vehicle definitions
 cartalk scan --adapter elm327 --port /dev/ttyUSB0 --vehicle chrysler/pacifica_2018
 ```
 
-### Web UI (incl. on an Android phone via USB-OTG)
+### Web UI — two ways to run it
+
+**1. Static browser app (no install) — `web/`.** Runs entirely in the browser via WebUSB;
+deployable as a GitHub Page. Open the page in Chrome (Android or desktop), plug in the FTDI
+adapter, scan. Same protocol engine as Python, ported to JS and Node-tested. See
+[`web/README.md`](web/README.md). This is the recommended on-the-go path.
+
+**2. Local Python server.** Useful on a desktop, or on a phone via Termux:
 
 ```bash
-pip install -e '.[api]'     # web server + UI
+pip install -e '.[api]'
 cartalk serve --adapter loopback     # demo data, no hardware — open http://localhost:8000
 ```
 
-To run it **on your phone** with the adapter on USB-OTG, see
-[`docs/android-termux.md`](docs/android-termux.md): the engine runs in Termux and serves
-the UI to the phone's browser. Fallback for any adapter on a TCP socket (WiFi / bridge):
-`cartalk serve --adapter tcp --tcp HOST:PORT`.
+For the Termux/USB-OTG server route see [`docs/android-termux.md`](docs/android-termux.md);
+TCP fallback for a WiFi/bridge adapter: `cartalk serve --adapter tcp --tcp HOST:PORT`.
 
 The DTC decoder, database loader, transports, and scan engine run with **no hardware**
 (the transport is verified end-to-end via an in-process ELM327 loopback):

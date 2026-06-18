@@ -1,0 +1,11 @@
+{
+  "name": "cartalk-web",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Browser (WebUSB) diagnostics UI for FCA/Stellantis vehicles — runs as a static GitHub Page.",
+  "scripts": {
+    "test": "node --test test/",
+    "typecheck": "tsc --allowJs --checkJs --noEmit --target es2022 --module es2022 lib/*.js || true"
+  }
+}

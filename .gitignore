@@ -16,6 +16,10 @@ venv/
 # Secrets / local config
 .env
 *.local
+.claude/
+
+# Node (web app dev)
+node_modules/
 
 # Session logs / captured CAN traces (can be large; keep out of git by default)
 *.log

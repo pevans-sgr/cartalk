@@ -1,0 +1,61 @@
+{
+  "platform": "chrysler/pacifica_2018",
+  "make": "Chrysler",
+  "model": "Pacifica",
+  "yearFrom": 2017,
+  "yearTo": 2020,
+  "notes": "2018+ requires a Security Gateway (SGW) bypass cable for any write/clear operation; reads work without it. Module CAN ids and DIDs below are starter values and must be verified against the vehicle (Phase 2 sniffing) before relying on them \u2014 they are placeholders to exercise the schema, NOT confirmed addresses.\n",
+  "modules": [
+    {
+      "id": "bcm",
+      "name": "Body Control Module",
+      "requestId": 416956657,
+      "responseId": 417001792,
+      "protocol": "uds",
+      "dids": [
+        {
+          "id": 61840,
+          "name": "VIN",
+          "kind": "live",
+          "decode": "ascii"
+        },
+        {
+          "id": 8193,
+          "name": "Auto Stop-Start Configured",
+          "kind": "config",
+          "decode": "enum:0=disabled,1=enabled"
+        }
+      ],
+      "dtcs": {
+        "B1601": "Key/transponder not programmed"
+      }
+    },
+    {
+      "id": "abs",
+      "name": "Anti-lock Brake System",
+      "requestId": 416950513,
+      "responseId": 417001768,
+      "protocol": "uds",
+      "dids": [],
+      "dtcs": {}
+    },
+    {
+      "id": "orc",
+      "name": "Occupant Restraint Controller (Airbag)",
+      "requestId": 416962801,
+      "responseId": 417001816,
+      "protocol": "uds",
+      "dids": [],
+      "dtcs": {}
+    },
+    {
+      "id": "cluster",
+      "name": "Instrument Cluster",
+      "requestId": 416964849,
+      "responseId": 417001824,
+      "protocol": "uds",
+      "dids": [],
+      "dtcs": {}
+    }
+  ]
+}
