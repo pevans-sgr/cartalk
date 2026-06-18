@@ -50,10 +50,16 @@ function setStatus(msg, isError = false) {
   el.classList.toggle("err", !!isError);
 }
 
+const logLines = [];
 function log(msg) {
-  const pre = $("log");
-  pre.textContent += msg + "\n";
+  logLines.push(msg);
+  $("log").textContent += msg + "\n";
   $("logBox").open = true;
+  $("transcript").hidden = false;   // log download/send available as soon as anything logs
+}
+function currentLogText() {
+  const header = lastSummary ? lastSummary + "\n\n" : "";
+  return header + logLines.join("\n") + "\n";
 }
 
 function renderModule(m) {
@@ -145,14 +151,8 @@ async function discoverModules() {
       out.innerHTML = `<div class="module"><h2><span>Discovered ${ids.length} module(s)</span></h2>`
         + ids.map((xx) => `<div class="dtc"><code>0x18DAF1${xx}</code><span>module addr 0x${xx} — request 0x18DA${xx}F1</span></div>`).join("")
         + `</div>`;
-      setStatus(`✅ Found ${ids.length} responding module(s). Send this to me and I'll set the real addresses.`);
-      // Make it sendable via the existing GitHub button.
-      const t = new Transcript();
-      t.rows.push({ kind: "discovery", responders: ids.map((xx) => `0x18DAF1${xx}`), raw });
-      lastTranscript = t;
+      setStatus(`✅ Found ${ids.length} responding module(s). Send the log and I'll set the real addresses.`);
       lastSummary = `Module discovery (functional 0x18DB33F1 → 1003)\nResponders: ${ids.map((xx) => "0x18DAF1" + xx).join(", ")}`;
-      $("downloadLink").href = URL.createObjectURL(t.toBlob());
-      $("transcript").hidden = false;
     } else {
       setStatus("No module answered the broadcast. The enhanced bus/addressing may differ — see the log; we'll try 11-bit next.", true);
     }
@@ -182,10 +182,8 @@ async function runScan() {
     const codes = results.reduce((n, m) => n + m.dtcs.length, 0);
     const up = results.filter((m) => m.reachable).length;
     setStatus(`${up}/${results.length} modules responded · ${codes} code(s) found`);
-    $("downloadLink").href = URL.createObjectURL(transcript.toBlob());
     lastTranscript = transcript;
     lastSummary = buildSummary($("vehicle").value, results);
-    $("transcript").hidden = false;
   } catch (err) {
     setStatus(`Scan failed: ${err.message}`, true);
   } finally {
@@ -211,32 +209,37 @@ function buildSummary(vehicle, results) {
   return lines.join("\n");
 }
 
-// Open a prefilled GitHub issue with the summary + transcript. URLs are length-limited,
-// so the transcript is truncated to fit (the full capture is the download link).
-function sendToGithub() {
-  if (!lastTranscript) return;
-  const MAX_URL = 7000;
-  const rows = lastTranscript.rows.map((r) => JSON.stringify(r));
-  const title = `Session capture — ${new Date().toISOString()}`;
-  const build = (lines, note) =>
-    `## cartalk session\n\n${lastSummary}\n\n### Transcript (JSONL)\n` +
-    "```\n" + lines.join("\n") + "\n```\n" + (note || "");
-  const url = () =>
-    `https://github.com/${REPO}/issues/new?title=${encodeURIComponent(title)}&body=${encodeURIComponent(body)}`;
+function downloadLog() {
+  const url = URL.createObjectURL(new Blob([currentLogText()], { type: "text/plain" }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "cartalk-log.txt";
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
 
-  let kept = rows.slice();
+// Open a prefilled GitHub issue with the full on-screen log. URLs are length-limited, so
+// the log is truncated to its most recent lines if needed (the full log is the download).
+function sendToGithub() {
+  const MAX_URL = 7000;
+  const all = logLines.slice();
+  const title = `Session log — ${new Date().toISOString()}`;
+  const head = lastSummary ? lastSummary + "\n\n" : "";
+  const build = (lines, note) =>
+    `## cartalk log\n\n${head}` + "```\n" + lines.join("\n") + "\n```\n" + (note || "");
+  let kept = all.slice();
   let note = "";
-  let body = build(kept, note);
+  const url = () =>
+    `https://github.com/${REPO}/issues/new?title=${encodeURIComponent(title)}&body=${encodeURIComponent(build(kept, note))}`;
   while (url().length > MAX_URL && kept.length > 1) {
-    kept = kept.slice(0, -1);
-    note = `\n_Transcript truncated to ${kept.length}/${rows.length} rows — full capture in the downloaded .jsonl._\n`;
-    body = build(kept, note);
+    kept = kept.slice(1);   // drop from the top; keep the most recent (the responses)
+    note = `\n_Older log lines trimmed (${all.length - kept.length} dropped) — use Download for the full log._\n`;
   }
   window.open(url(), "_blank");
   const n = $("sendNote");
   n.hidden = false;
-  n.textContent = kept.length < rows.length
-    ? `Opened a prefilled GitHub issue (transcript truncated to ${kept.length}/${rows.length} rows; attach the downloaded .jsonl for the rest). Tap "Submit new issue".`
+  n.textContent = kept.length < all.length
+    ? `Opened a prefilled GitHub issue (log trimmed to the last ${kept.length} lines; Download for the full log). Tap "Submit new issue".`
     : `Opened a prefilled GitHub issue — tap "Submit new issue" to send it.`;
 }
 
@@ -271,6 +274,7 @@ async function init() {
   $("testBtn").addEventListener("click", testConnection);
   $("discoverBtn").addEventListener("click", discoverModules);
   $("scanBtn").addEventListener("click", runScan);
+  $("downloadBtn").addEventListener("click", downloadLog);
   $("sendBtn").addEventListener("click", sendToGithub);
 }
 
