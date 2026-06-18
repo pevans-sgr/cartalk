@@ -139,12 +139,14 @@ async function discoverModules() {
   setBusy(true);
   $("discoverBtn").disabled = true;
   $("results").innerHTML = "";
-  setStatus("Sweeping physical addresses 0x18DA00F1…0xFFF1 (about a minute)…");
+  setStatus("Sweeping physical addresses 0x18DA00F1…0xFFF1 (under a minute)…");
   try {
-    const found = await elm.discoverModules((xx, n) => {
-      if (xx % 16 === 0 || n) {
-        setStatus(`Probing modules… 0x${xx.toString(16).toUpperCase().padStart(2, "0")} / FF · ${n} found`);
-      }
+    let lastN = 0;
+    const found = await elm.discoverModules((xx, n, last) => {
+      const hx = xx.toString(16).toUpperCase().padStart(2, "0");
+      setStatus(`Probing modules… 0x${hx} / FF · ${n} found`);   // live, every probe
+      if (n > lastN && last) { log(`  ✓ module 0x${last.addr} → ${last.raw.replace(/\s+/g, " ").trim()}`); lastN = n; }
+      else if (xx % 32 === 0) log(`…swept through 0x${hx} (${n} found)`);
     });
     log(`physical 29-bit sweep complete: ${found.length} module(s) responded`);
     found.forEach((f) => log(`  module 0x${f.addr} (resp 0x18DAF1${f.addr}) → ${JSON.stringify(f.raw).slice(0, 90)}`));

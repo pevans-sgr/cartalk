@@ -73,24 +73,28 @@ export class Elm327 {
   async discoverModules(onProgress) {
     await this._command("ATSP7");   // 29-bit, 500k
     await this._command("ATAT0");   // fixed timing
-    await this._command("ATST20");  // ~128ms response window → fast NO DATA on empty addrs
+    await this._command("ATST10");  // ~64ms response window → fast NO DATA on empty addrs
     await this._command("ATCP18");  // priority byte 0x18
     this._proto = "7";
     this._target = null;
+    if (this.onLog) this.onLog("module sweep: 29-bit physical 0x18DA00F1…0x18DAFFF1");
     const found = [];
-    this._quiet = true;
+    const savedTimeout = this.stream.timeout;
+    this.stream.timeout = 400;      // fail fast on silent addresses
+    this._quiet = true;             // don't log all 256 probes
     try {
       for (let xx = 0; xx <= 0xff; xx++) {
         const hx = xx.toString(16).toUpperCase().padStart(2, "0");
         await this._command(`ATSHDA${hx}F1`);
         await this._command(`ATCRA18DAF1${hx}`);
         let r = "";
-        try { r = await this._command("1003", 1500); } catch (_) { r = ""; }
+        try { r = await this._command("1003", 700); } catch (_) { r = ""; }
         if (r.toUpperCase().includes(`18DAF1${hx}`)) found.push({ addr: hx, raw: r });
-        if (onProgress) onProgress(xx, found.length);
+        if (onProgress) onProgress(xx, found.length, found[found.length - 1]);
       }
     } finally {
       this._quiet = false;
+      this.stream.timeout = savedTimeout;
     }
     return found;
   }
