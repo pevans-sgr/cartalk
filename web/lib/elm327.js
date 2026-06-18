@@ -47,6 +47,21 @@ export class Elm327 {
     throw new Error(`no response from 0x${respId.toString(16)}`);
   }
 
+  /**
+   * Generic OBD-II probe (mode 01 PID 00 + mode 03). This emissions traffic is NOT gated
+   * by the FCA Security Gateway, so it confirms the adapter/bus work regardless of whether
+   * the SGW bypass is installed. Uses automatic protocol detection.
+   */
+  async probeGenericObd() {
+    await this._command("ATSP0");        // automatic protocol detection
+    await this._command("ATCRA");        // reset any receive filter from a prior scan
+    this._proto = "0";
+    this._target = null;
+    const pids = await this._command("0100", 8000);   // supported PIDs (triggers search)
+    const dtcs = await this._command("03", 6000);     // stored emission DTCs
+    return { pids, dtcs };
+  }
+
   async _command(cmd, timeoutMs = 2000) {
     if (this.stream.resetInput) await this.stream.resetInput();
     await this.stream.write(enc.encode(cmd + "\r"));

@@ -92,10 +92,37 @@ async function connect() {
     $("conn").textContent = "connected";
     $("conn").classList.add("on");
     $("scanBtn").disabled = false;
-    setStatus("Adapter connected. Pick a vehicle and scan.");
+    $("testBtn").disabled = false;
+    setStatus("Adapter connected. Try 'Test connection' first, then scan.");
   } catch (err) {
     setStatus(`Connect failed: ${err.message}`, true);
   } finally {
+    setBusy(false);
+  }
+}
+
+async function testConnection() {
+  if (!elm) return;
+  setBusy(true);
+  $("testBtn").disabled = true;
+  setStatus("Testing basic OBD-II connectivity (bypasses the gateway)…");
+  try {
+    const r = await elm.probeGenericObd();
+    log("0100 → " + JSON.stringify(r.pids));
+    log("03 → " + JSON.stringify(r.dtcs));
+    if (/41\s*00/.test(r.pids)) {
+      setStatus("✅ A powertrain ECU answered generic OBD-II — the adapter and CAN bus are working. "
+        + "So the modules going silent is the Security Gateway and/or wrong module addresses, not comms.");
+    } else if (/NO DATA|UNABLE|SEARCHING/i.test(r.pids)) {
+      setStatus("⚠️ No ECU answered even generic OBD-II. Likely the wrong CAN bus/protocol, or the "
+        + "adapter isn't seeing the bus (check the HS/MS-CAN switch and that the key is on).", true);
+    } else {
+      setStatus("Got an unexpected reply — see the Connection log.", true);
+    }
+  } catch (e) {
+    setStatus("Test failed: " + e.message, true);
+  } finally {
+    $("testBtn").disabled = false;
     setBusy(false);
   }
 }
@@ -204,6 +231,7 @@ async function init() {
     setStatus(`Could not load vehicle list: ${err.message}`, true);
   }
   $("connectBtn").addEventListener("click", connect);
+  $("testBtn").addEventListener("click", testConnection);
   $("scanBtn").addEventListener("click", runScan);
   $("sendBtn").addEventListener("click", sendToGithub);
 }
