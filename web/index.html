@@ -21,6 +21,13 @@
     <section class="controls">
       <label for="vehicle">Vehicle</label>
       <select id="vehicle"></select>
+      <label for="baud">Adapter baud</label>
+      <select id="baud">
+        <option value="115200" selected>115200 (default)</option>
+        <option value="38400">38400</option>
+        <option value="57600">57600</option>
+        <option value="9600">9600</option>
+      </select>
       <label class="check"><input type="checkbox" id="readData"> read live data</label>
       <div class="buttons">
         <button id="connectBtn">Connect adapter</button>

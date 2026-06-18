@@ -96,7 +96,7 @@ export class FtdiWebUsb {
     // Assert DTR and RTS — many ELM327 clones stay held in reset until these go high.
     await this._control(REQ_SET_MODEM_CTRL, 0x0101, port);        // DTR = 1
     await this._control(REQ_SET_MODEM_CTRL, 0x0202, port);        // RTS = 1
-    this.onLog("FTDI configured (baud 115200, DTR+RTS asserted)");
+    this.onLog(`FTDI configured (baud ${this.baudrate}, DTR+RTS asserted)`);
   }
 
   _control(request, value, index = 0) {

@@ -48,8 +48,11 @@ function renderModule(m) {
 
 async function connect() {
   try {
+    if (elm) { try { await elm.close(); } catch (_) {} elm = null; }
+    const baud = parseInt($("baud").value, 10);
     setStatus("Select your OBD adapter in the browser prompt…");
-    const ftdi = await requestFtdiPort(115200, log);
+    log(`connecting at ${baud} baud…`);
+    const ftdi = await requestFtdiPort(baud, log);
     const e = new Elm327(ftdi, log);
     await e.open();
     elm = e;
