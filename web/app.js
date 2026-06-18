@@ -176,7 +176,18 @@ function sendToGithub() {
     : `Opened a prefilled GitHub issue — tap "Submit new issue" to send it.`;
 }
 
+async function showBuild() {
+  try {
+    const v = await (await fetch("version.json", { cache: "no-store" })).json();
+    $("build").textContent = `build ${v.build}`;
+    $("build").title = `deployed ${v.date}`;
+  } catch (_) {
+    $("build").textContent = "build dev";  // running locally / offline / no stamp
+  }
+}
+
 async function init() {
+  showBuild();
   if (!("usb" in navigator)) {
     $("unsupported").hidden = false;
     $("connectBtn").disabled = true;

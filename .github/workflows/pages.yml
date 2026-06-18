@@ -28,6 +28,8 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+      - name: Stamp build version
+        run: printf '{"build":"%s","date":"%s"}\n' "$(git rev-parse --short HEAD)" "$(date -u +%FT%TZ)" > web/version.json
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
