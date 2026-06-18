@@ -9,7 +9,10 @@ import { scanPlatform } from "./lib/scan.js";
 import { Transcript, loggingSend } from "./lib/transcript.js";
 
 const $ = (id) => document.getElementById(id);
-let elm = null;  // connected Elm327 instance
+const REPO = "pevans-sgr/cartalk";   // where "Send session" files an issue
+let elm = null;            // connected Elm327 instance
+let lastTranscript = null; // for the download + send buttons
+let lastSummary = "";
 
 function setStatus(msg, isError = false) {
   const el = $("status");
@@ -83,12 +86,60 @@ async function runScan() {
     const up = results.filter((m) => m.reachable).length;
     setStatus(`${up}/${results.length} modules responded · ${codes} code(s) found`);
     $("downloadLink").href = URL.createObjectURL(transcript.toBlob());
+    lastTranscript = transcript;
+    lastSummary = buildSummary($("vehicle").value, results);
     $("transcript").hidden = false;
   } catch (err) {
     setStatus(`Scan failed: ${err.message}`, true);
   } finally {
     $("scanBtn").disabled = false;
   }
+}
+
+function buildSummary(vehicle, results) {
+  const up = results.filter((m) => m.reachable).length;
+  const codes = results.reduce((n, m) => n + m.dtcs.length, 0);
+  const lines = [
+    `Vehicle: ${vehicle}`,
+    `Modules: ${up}/${results.length} responded · ${codes} code(s)`,
+    "",
+  ];
+  for (const m of results) {
+    const tag = m.reachable ? "OK" : "no-response";
+    lines.push(`- [${m.module_id}] ${m.name} (${tag})`);
+    for (const d of m.dtcs) lines.push(`    ${d.code}${d.description ? " — " + d.description : ""}`);
+    for (const [k, v] of Object.entries(m.data || {})) lines.push(`    ${k}: ${v}`);
+  }
+  return lines.join("\n");
+}
+
+// Open a prefilled GitHub issue with the summary + transcript. URLs are length-limited,
+// so the transcript is truncated to fit (the full capture is the download link).
+function sendToGithub() {
+  if (!lastTranscript) return;
+  const MAX_URL = 7000;
+  const rows = lastTranscript.rows.map((r) => JSON.stringify(r));
+  const title = `Session capture — ${new Date().toISOString()}`;
+  const build = (lines, note) =>
+    `## cartalk session\n\n${lastSummary}\n\n### Transcript (JSONL)\n` +
+    "```\n" + lines.join("\n") + "\n```\n" + (note || "");
+  const url = () =>
+    `https://github.com/${REPO}/issues/new?title=${encodeURIComponent(title)}&body=${encodeURIComponent(body)}`;
+
+  let kept = rows.slice();
+  let note = "";
+  let body = build(kept, note);
+  while (url().length > MAX_URL && kept.length > 1) {
+    kept = kept.slice(0, -1);
+    note = `\n_Transcript truncated to ${kept.length}/${rows.length} rows — full capture in the downloaded .jsonl._\n`;
+    body = build(kept, note);
+  }
+  window.open(url(), "_blank");
+  const n = $("sendNote");
+  n.hidden = false;
+  n.textContent = kept.length < rows.length
+    ? `Opened a prefilled GitHub issue (transcript truncated to ${kept.length}/${rows.length} rows; attach the downloaded .jsonl for the rest). Tap "Submit new issue".`
+    : `Opened a prefilled GitHub issue — tap "Submit new issue" to send it.`;
 }
 
 async function init() {
@@ -109,6 +160,7 @@ async function init() {
   }
   $("connectBtn").addEventListener("click", connect);
   $("scanBtn").addEventListener("click", runScan);
+  $("sendBtn").addEventListener("click", sendToGithub);
 }
 
 init();
