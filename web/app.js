@@ -249,13 +249,16 @@ function sendToGithub() {
 }
 
 async function showBuild() {
+  let build = "dev";
   try {
     const v = await (await fetch("version.json", { cache: "no-store" })).json();
+    build = v.build;
     $("build").textContent = `build ${v.build}`;
     $("build").title = `deployed ${v.date}`;
   } catch (_) {
     $("build").textContent = "build dev";  // running locally / offline / no stamp
   }
+  log(`cartalk build ${build}`);   // first log line → every sent issue records the build
 }
 
 async function init() {

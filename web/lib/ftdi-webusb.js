@@ -109,24 +109,24 @@ export class FtdiWebUsb {
     this._buf = [];
   }
 
-  /** Read up to `size` bytes (status bytes already stripped), honoring this.timeout. */
+  /** Read up to `size` bytes (status bytes already stripped), honoring this.timeout.
+   *  Each transferIn is bounded by a race so a silent endpoint can never block forever. */
   async read(size) {
     const deadline = Date.now() + this.timeout;
-    let polls = 0, statusOnly = 0, dataPolls = 0;
     while (this._buf.length < size && Date.now() < deadline) {
-      const result = await this.device.transferIn(this.epIn, 64);
-      polls++;
-      const len = result.data ? result.data.byteLength : 0;
-      if (len > 2) {
-        dataPolls++;
-        this._buf.push(...stripFtdiStatus(new Uint8Array(result.data.buffer), 64));
-      } else {
-        statusOnly++;
-        await new Promise((r) => setTimeout(r, 5));
+      let result;
+      try {
+        result = await Promise.race([
+          this.device.transferIn(this.epIn, 64),
+          new Promise((r) => setTimeout(() => r(null), 150)),
+        ]);
+      } catch (_) {
+        break;  // endpoint error/stall — give up this read
       }
-    }
-    if (dataPolls === 0 && polls > 0) {
-      this.onLog(`read: ${polls} IN polls returned only status bytes — no UART data from the ELM327`);
+      if (!result || !result.data) continue;            // timed out this poll; re-check deadline
+      if (result.data.byteLength > 2) {
+        this._buf.push(...stripFtdiStatus(new Uint8Array(result.data.buffer), 64));
+      }
     }
     return Uint8Array.from(this._buf.splice(0, size));
   }

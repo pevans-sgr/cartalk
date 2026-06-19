@@ -82,6 +82,7 @@ export class Elm327 {
     const savedTimeout = this.stream.timeout;
     this.stream.timeout = 400;      // fail fast on silent addresses
     this._quiet = true;             // don't log all 256 probes
+    let silentStreak = 0;           // consecutive probes with NO reply at all (timeouts)
     try {
       for (let xx = 0; xx <= 0xff; xx++) {
         const hx = xx.toString(16).toUpperCase().padStart(2, "0");
@@ -89,8 +90,15 @@ export class Elm327 {
         await this._command(`ATCRA18DAF1${hx}`);
         let r = "";
         try { r = await this._command("1003", 700); } catch (_) { r = ""; }
+        // "" = ELM gave nothing (timeout); "NO DATA"/frame = ELM responded.
+        silentStreak = r === "" ? silentStreak + 1 : 0;
         if (r.toUpperCase().includes(`18DAF1${hx}`)) found.push({ addr: hx, raw: r });
         if (onProgress) onProgress(xx, found.length, found[found.length - 1]);
+        // If the ELM itself stays silent (not even "NO DATA"), 29-bit isn't working here.
+        if (silentStreak >= 12 && found.length === 0) {
+          if (this.onLog) this.onLog(`aborting sweep at 0x${hx}: ${silentStreak} probes with no ELM reply at all — adapter not answering on 29-bit (enhanced diag likely 11-bit). Generic OBD works, so the bus is fine.`);
+          return found;
+        }
       }
     } finally {
       this._quiet = false;
