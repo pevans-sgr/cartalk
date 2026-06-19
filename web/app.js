@@ -1,21 +1,23 @@
 // cartalk web app — runs entirely in the browser. Talks to an FTDI OBD adapter over
-// WebUSB, scans every module, decodes DTCs, and offers the session transcript for download.
+// WebUSB and exposes two modes: generic OBD-II (any vehicle) and a guided check for the
+// intermittent shifter-lock / forced-Park fault (built on generic OBD-II — no SGW bypass).
 // No server: this is a static page (e.g. GitHub Pages).
 
 import { requestFtdiPort } from "./lib/ftdi-webusb.js";
 import { Elm327 } from "./lib/elm327.js";
-import { loadPlatform } from "./lib/db.js";
-import { scanPlatform } from "./lib/scan.js";
-import { Transcript, loggingSend } from "./lib/transcript.js";
 import { GenericObd } from "./lib/obd2.js";
 
 const $ = (id) => document.getElementById(id);
 const REPO = "pevans-sgr/cartalk";   // where "Send session" files an issue
 let elm = null;            // connected Elm327 instance
 let obd = null;            // GenericObd (generic OBD-II) over the same elm
-let liveRunning = false;
-let lastTranscript = null; // for the download + send buttons
-let lastSummary = "";
+let liveRunning = false;   // generic live-data loop active
+let monRunning = false;    // guided power-monitor loop active
+let monSamples = [];       // captured monitor samples, downloaded as JSONL
+let lastSummary = "";      // header line for the downloaded / sent log
+
+// Buttons enabled once the adapter is connected.
+const CONNECTED_BTNS = ["testBtn", "liveBtn", "codesBtn", "vinBtn", "clearBtn", "gCodesBtn", "gMonBtn"];
 
 // Busy = a connect/scan is in progress; defer any auto-reload until it finishes so an
 // update never interrupts talking to the car.
@@ -65,27 +67,22 @@ function currentLogText() {
   return header + logLines.join("\n") + "\n";
 }
 
-function renderModule(m) {
-  const card = document.createElement("div");
-  card.className = "module";
-  const pill = `<span class="pill ${m.reachable ? "ok" : "bad"}">${m.reachable ? "responding" : "no response"}</span>`;
-  card.innerHTML = `<h2><span>${m.name} <span class="id">${m.module_id}</span></span>${pill}</h2>`;
+// -- mode switching ---------------------------------------------------------
 
-  if (m.reachable && m.dtcs.length === 0) {
-    card.insertAdjacentHTML("beforeend", `<div class="none">No fault codes</div>`);
-  }
-  for (const d of m.dtcs) {
-    const desc = d.description ? ` — ${d.description}` : "";
-    const flags = d.flags?.length ? `<span class="flags">[${d.flags.join(", ")}]</span>` : "";
-    card.insertAdjacentHTML("beforeend",
-      `<div class="dtc"><code>${d.code}</code><span>${desc}</span>${flags}</div>`);
-  }
-  for (const [k, v] of Object.entries(m.data || {})) {
-    card.insertAdjacentHTML("beforeend",
-      `<div class="datum"><span class="k">${k}</span><span>${v}</span></div>`);
-  }
-  $("results").appendChild(card);
+function switchMode(mode) {
+  const isObd = mode === "obd";
+  $("tabObd").classList.toggle("active", isObd);
+  $("tabGuided").classList.toggle("active", !isObd);
+  $("tabObd").setAttribute("aria-selected", String(isObd));
+  $("tabGuided").setAttribute("aria-selected", String(!isObd));
+  $("modeObd").hidden = !isObd;
+  $("modeGuided").hidden = isObd;
+  liveRunning = false; monRunning = false;   // stop any loop when leaving a mode
+  $("results").innerHTML = "";
+  setStatus("");
 }
+
+// -- adapter connect --------------------------------------------------------
 
 async function connect() {
   setBusy(true);
@@ -101,12 +98,8 @@ async function connect() {
     obd = new GenericObd(e);
     $("conn").textContent = "connected";
     $("conn").classList.add("on");
-    $("scanBtn").disabled = false;
-    $("testBtn").disabled = false;
-    $("discoverBtn").disabled = false;
-    $("obd2").hidden = false;
-    for (const id of ["liveBtn", "codesBtn", "vinBtn", "clearBtn"]) $(id).disabled = false;
-    setStatus("Adapter connected. Use the Generic OBD-II buttons (live data, codes, VIN).");
+    for (const id of CONNECTED_BTNS) $(id).disabled = false;
+    setStatus("Adapter connected. Pick a mode above, then run a check.");
   } catch (err) {
     setStatus(`Connect failed: ${err.message}`, true);
   } finally {
@@ -118,14 +111,13 @@ async function testConnection() {
   if (!elm) return;
   setBusy(true);
   $("testBtn").disabled = true;
-  setStatus("Testing basic OBD-II connectivity (bypasses the gateway)…");
+  setStatus("Testing basic OBD-II connectivity (through the gateway)…");
   try {
     const r = await elm.probeGenericObd();
     log("0100 → " + JSON.stringify(r.pids));
     log("03 → " + JSON.stringify(r.dtcs));
     if (/41\s*00/.test(r.pids)) {
-      setStatus("✅ A powertrain ECU answered generic OBD-II — the adapter and CAN bus are working. "
-        + "So the modules going silent is the Security Gateway and/or wrong module addresses, not comms.");
+      setStatus("✅ A powertrain ECU answered generic OBD-II — the adapter and CAN bus are working.");
     } else if (/NO DATA|UNABLE|SEARCHING/i.test(r.pids)) {
       setStatus("⚠️ No ECU answered even generic OBD-II. Likely the wrong CAN bus/protocol, or the "
         + "adapter isn't seeing the bus (check the HS/MS-CAN switch and that the key is on).", true);
@@ -143,6 +135,8 @@ async function testConnection() {
 async function ensureObd() {
   if (!obd.ready) { setStatus("Initializing OBD-II…"); await obd.init(); }
 }
+
+// -- generic OBD-II ---------------------------------------------------------
 
 function renderLive(rows) {
   $("results").innerHTML = `<div class="module"><h2><span>Live data</span></h2>`
@@ -193,6 +187,8 @@ async function readCodes() {
       + section("Permanent codes", permanent) + `</div>`;
     const total = stored.length + pending.length + permanent.length;
     setStatus(`${total} code(s): ${stored.length} stored, ${pending.length} pending, ${permanent.length} permanent`);
+    lastSummary = `Generic OBD-II codes: ${stored.length} stored, ${pending.length} pending, ${permanent.length} permanent`
+      + (status ? ` · MIL ${status.milOn ? "ON" : "off"}` : "");
   } catch (e) {
     setStatus("Read codes failed: " + e.message, true);
   } finally {
@@ -237,86 +233,72 @@ async function clearCodes() {
   }
 }
 
-async function discoverModules() {
-  if (!elm) return;
-  setBusy(true);
-  $("discoverBtn").disabled = true;
-  $("results").innerHTML = "";
-  setStatus("Sweeping physical addresses 0x18DA00F1…0xFFF1 (~30–40s)…");
+// -- guided: shifter / power fault ------------------------------------------
+
+// PIDs that test the IBS / charging hypothesis behind the shifter lock-up.
+const MONITOR_PIDS = [0x42, 0x0c, 0x1f];   // module voltage, RPM, run time
+
+function renderMonitor(rows, vmin, vmax, n) {
+  const range = Number.isFinite(vmin)
+    ? `<div class="datum"><span class="k">Voltage min / max</span><span>${vmin.toFixed(1)} / ${vmax.toFixed(1)} V</span></div>`
+    : "";
+  $("results").innerHTML = `<div class="module"><h2><span>Power monitor</span><span class="id">${n} samples</span></h2>`
+    + rows.map((r) => `<div class="datum"><span class="k">${r.name}</span><span>${r.value} ${r.unit}</span></div>`).join("")
+    + range + `</div>`;
+}
+
+async function toggleMonitor() {
+  if (monRunning) { monRunning = false; return; }
   try {
-    let lastN = 0;
-    const { found, verdict } = await elm.discoverModules((xx, n, last) => {
-      const hx = xx.toString(16).toUpperCase().padStart(2, "0");
-      setStatus(`Probing modules… 0x${hx} / FF · ${n} found`);   // live, every probe
-      if (n > lastN && last) { log(`  ✓ module 0x${last.addr} → ${last.raw.replace(/\s+/g, " ").trim()}`); lastN = n; }
-      else if (xx % 16 === 0) log(`…swept through 0x${hx} (${n} found)`);
-    });
-    if (found.length) {
-      $("results").innerHTML = `<div class="module"><h2><span>Discovered ${found.length} module(s)</span></h2>`
-        + found.map((f) => `<div class="dtc"><code>0x18DA${f.addr}F1</code><span>module addr 0x${f.addr}</span></div>`).join("")
-        + `</div>`;
-      setStatus(`✅ Found ${found.length} module(s) on 29-bit. Send the log and I'll set the real addresses.`);
-      lastSummary = "Physical 29-bit address sweep\nResponders (request → reply):\n"
-        + found.map((f) => `  0x18DA${f.addr}F1 → ${f.raw.replace(/\s+/g, " ").trim()}`).join("\n");
-    } else if (verdict === "empty-29bit") {
-      setStatus("Definitive: 29-bit works but NO enhanced module answers — enhanced diag is 11-bit/proprietary. Send the log.", true);
-      lastSummary = "29-bit sweep: 0 modules; ELM returned NO DATA on all 256 (29-bit works, no enhanced replies).";
-    } else {
-      setStatus("Definitive: the adapter doesn't answer on 29-bit at all (generic OBD is 11-bit). Send the log.", true);
-      lastSummary = "29-bit sweep: 0 modules, no ELM replies — 29-bit not usable on this vehicle.";
+    await ensureObd();
+  } catch (e) { setStatus("OBD init failed: " + e.message, true); return; }
+  monRunning = true;
+  setBusy(true);
+  monSamples = [];
+  $("gMonBtn").textContent = "Stop monitor";
+  $("gMonSave").hidden = true;
+  $("gMonSave").disabled = true;
+  let vmin = Infinity, vmax = -Infinity;
+  setStatus("Power monitor running — leave it on and drive until the fault trips, then Stop.");
+  while (monRunning) {
+    try {
+      const rows = await obd.readPids(MONITOR_PIDS);
+      const sample = { t: new Date().toISOString() };
+      for (const r of rows) sample[r.name] = r.value;
+      monSamples.push(sample);
+      const v = rows.find((r) => r.id === 0x42)?.value;
+      if (v != null) { vmin = Math.min(vmin, v); vmax = Math.max(vmax, v); }
+      renderMonitor(rows, vmin, vmax, monSamples.length);
+    } catch (e) {
+      setStatus("Monitor read error: " + e.message, true);
+      break;
     }
-  } catch (e) {
-    setStatus("Discover failed: " + e.message, true);
-  } finally {
-    $("discoverBtn").disabled = false;
-    setBusy(false);
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  monRunning = false;
+  setBusy(false);
+  $("gMonBtn").textContent = "Start monitor";
+  const have = monSamples.length > 0;
+  $("gMonSave").hidden = !have;
+  $("gMonSave").disabled = !have;
+  if (have) {
+    lastSummary = `Power monitor: ${monSamples.length} samples, voltage ${vmin.toFixed(1)}–${vmax.toFixed(1)} V`;
+    setStatus(`Monitor stopped — ${monSamples.length} samples captured (${vmin.toFixed(1)}–${vmax.toFixed(1)} V). Download the log to keep it.`);
   }
 }
 
-async function runScan() {
-  if (!elm) return;
-  setBusy(true);
-  $("scanBtn").disabled = true;
-  $("results").innerHTML = "";
-  $("transcript").hidden = true;
-  setStatus("Scanning all modules…");
-  const transcript = new Transcript();
-  try {
-    const platform = await loadPlatform($("vehicle").value);
-    const send = loggingSend((a, b, p) => elm.request(a, b, p), transcript);
-    const results = await scanPlatform(send, platform, {
-      readData: $("readData").checked,
-      onModule: renderModule,
-    });
-    const codes = results.reduce((n, m) => n + m.dtcs.length, 0);
-    const up = results.filter((m) => m.reachable).length;
-    setStatus(`${up}/${results.length} modules responded · ${codes} code(s) found`);
-    lastTranscript = transcript;
-    lastSummary = buildSummary($("vehicle").value, results);
-  } catch (err) {
-    setStatus(`Scan failed: ${err.message}`, true);
-  } finally {
-    $("scanBtn").disabled = false;
-    setBusy(false);
-  }
+function saveMonitor() {
+  if (!monSamples.length) return;
+  const jsonl = monSamples.map((s) => JSON.stringify(s)).join("\n") + "\n";
+  const url = URL.createObjectURL(new Blob([jsonl], { type: "application/x-ndjson" }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "cartalk-power-monitor.jsonl";
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-function buildSummary(vehicle, results) {
-  const up = results.filter((m) => m.reachable).length;
-  const codes = results.reduce((n, m) => n + m.dtcs.length, 0);
-  const lines = [
-    `Vehicle: ${vehicle}`,
-    `Modules: ${up}/${results.length} responded · ${codes} code(s)`,
-    "",
-  ];
-  for (const m of results) {
-    const tag = m.reachable ? "OK" : "no-response";
-    lines.push(`- [${m.module_id}] ${m.name} (${tag})`);
-    for (const d of m.dtcs) lines.push(`    ${d.code}${d.description ? " — " + d.description : ""}`);
-    for (const [k, v] of Object.entries(m.data || {})) lines.push(`    ${k}: ${v}`);
-  }
-  return lines.join("\n");
-}
+// -- log download / send ----------------------------------------------------
 
 function downloadLog() {
   const url = URL.createObjectURL(new Blob([currentLogText()], { type: "text/plain" }));
@@ -365,31 +347,23 @@ async function showBuild() {
   log(`cartalk build ${build}`);   // first log line → every sent issue records the build
 }
 
-async function init() {
+function init() {
   showBuild();
   if (!("usb" in navigator)) {
     $("unsupported").hidden = false;
     $("connectBtn").disabled = true;
   }
-  try {
-    const manifest = await (await fetch("db/index.json")).json();
-    const sel = $("vehicle");
-    for (const p of manifest) {
-      const opt = document.createElement("option");
-      opt.value = p.id; opt.textContent = p.label;
-      sel.appendChild(opt);
-    }
-  } catch (err) {
-    setStatus(`Could not load vehicle list: ${err.message}`, true);
-  }
   $("connectBtn").addEventListener("click", connect);
   $("testBtn").addEventListener("click", testConnection);
-  $("discoverBtn").addEventListener("click", discoverModules);
-  $("scanBtn").addEventListener("click", runScan);
+  $("tabObd").addEventListener("click", () => switchMode("obd"));
+  $("tabGuided").addEventListener("click", () => switchMode("guided"));
   $("liveBtn").addEventListener("click", toggleLive);
   $("codesBtn").addEventListener("click", readCodes);
   $("vinBtn").addEventListener("click", vehicleInfo);
   $("clearBtn").addEventListener("click", clearCodes);
+  $("gCodesBtn").addEventListener("click", readCodes);
+  $("gMonBtn").addEventListener("click", toggleMonitor);
+  $("gMonSave").addEventListener("click", saveMonitor);
   $("downloadBtn").addEventListener("click", downloadLog);
   $("sendBtn").addEventListener("click", sendToGithub);
 }

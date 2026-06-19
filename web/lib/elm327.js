@@ -62,59 +62,6 @@ export class Elm327 {
     return { pids, dtcs };
   }
 
-  /**
-   * Discover modules by sweeping the 29-bit physical address space: send a request to each
-   * 0x18DAxxF1 and keep the addresses that reply on 0x18DAF1xx. FCA modules answer physical
-   * requests but not the ISO functional broadcast, so this is the reliable way to learn the
-   * real addresses. Per-probe logging is suppressed (256 probes); only responders matter.
-   * @param {(addr:number, foundCount:number)=>void} onProgress
-   * @returns {Promise<{addr:string, raw:string}[]>}
-   */
-  async discoverModules(onProgress) {
-    await this._command("ATSP7");        // 29-bit, 500k
-    await this._command("ATAT0");        // fixed timing
-    await this._command("ATST10");       // ~64ms response window → fast NO DATA
-    await this._command("ATCP18");       // priority byte 0x18
-    await this._command("ATCM1FFFFF00"); // receive mask: any 0x18DAF1xx
-    await this._command("ATCF18DAF100"); // receive filter set ONCE (1 fewer cmd/probe)
-    this._proto = "7";
-    this._target = null;
-    if (this.onLog) this.onLog("sweep: 29-bit physical 0x18DA00F1…0x18DAFFF1 (fast)");
-    const found = [];
-    const savedTimeout = this.stream.timeout;
-    this.stream.timeout = 250;           // fail fast on silent addresses
-    this._quiet = true;
-    let silent = 0;          // consecutive probes with NO ELM reply at all
-    let sawNoData = false;   // did the ELM ever cleanly say "NO DATA"? (= 29-bit works)
-    try {
-      for (let xx = 0; xx <= 0xff; xx++) {
-        const hx = xx.toString(16).toUpperCase().padStart(2, "0");
-        try { await this._command(`ATSHDA${hx}F1`); } catch (_) { /* keep going */ }
-        let r = "";
-        try { r = await this._command("1003", 300); } catch (_) { r = ""; }
-        if (r === "") { silent++; } else { silent = 0; if (/NO DATA/i.test(r)) sawNoData = true; }
-        if (r.toUpperCase().includes(`18DAF1${hx}`)) found.push({ addr: hx, raw: r });
-        if (onProgress) onProgress(xx, found.length, found[found.length - 1]);
-        if (silent >= 16 && found.length === 0) {
-          if (this.onLog) this.onLog(`SWEEP ABORTED at 0x${hx}: no ELM reply for ${silent} probes — the adapter isn't answering on 29-bit at all. Enhanced diag is 11-bit/proprietary on this vehicle.`);
-          return { found, verdict: "no-29bit" };
-        }
-      }
-    } finally {
-      this._quiet = false;
-      this.stream.timeout = savedTimeout;
-    }
-    const verdict = found.length ? "found" : (sawNoData ? "empty-29bit" : "no-29bit");
-    if (this.onLog) {
-      this.onLog(found.length
-        ? `SWEEP COMPLETE: ${found.length} module(s) responded on 29-bit.`
-        : sawNoData
-          ? "SWEEP COMPLETE: 0 modules. The ELM answered NO DATA on all 256 addresses — 29-bit protocol works but no enhanced module replies. Enhanced diag is 11-bit/proprietary."
-          : "SWEEP COMPLETE: 0 modules and no ELM replies — 29-bit not usable here.");
-    }
-    return { found, verdict };
-  }
-
   /** Reset to a clean generic OBD-II state (auto protocol, default headers/filters). */
   async setGenericMode() {
     await this._command("ATD");    // all settings to defaults (clears ATCP/ATSH/filters)

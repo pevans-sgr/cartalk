@@ -1,8 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Elm327 } from "../lib/elm327.js";
-import { UdsClient } from "../lib/uds.js";
-import { scanPlatform } from "../lib/scan.js";
 
 const enc = new TextEncoder();
 const dec = new TextDecoder();
@@ -42,42 +40,22 @@ class LoopbackStream {
 
 const VIN = "2C4RC1BG5JR000001";
 const ECUS = {
+  // A multi-frame ReadDTCInformation response (0x59 0x02 …) and a multi-frame DID read.
   [`${BCM_RESP}:1902FF`]: [0x59, 0x02, 0xff, 0x01, 0x43, 0x00, 0x08, 0x96, 0x01, 0x00, 0x08],
   [`${BCM_RESP}:22F190`]: [0x62, 0xf1, 0x90, ...enc.encode(VIN)],
-  [`${BCM_RESP}:1003`]: [0x50, 0x03, 0x00, 0x32, 0x01, 0xf4],
 };
 
-test("Elm327 + UDS read DTCs (multi-frame) through the loopback stream", async () => {
+// request() carries 29-bit FCA addressing + ISO-TP reassembly — the ELM transport primitive.
+test("Elm327.request reassembles a multi-frame response", async () => {
   const elm = new Elm327(new LoopbackStream(ECUS));
   await elm.open();
-  const send = (a, b, p) => elm.request(a, b, p);
-  const dtcs = await new UdsClient(send, BCM, BCM_RESP).readDtcs();
-  assert.deepEqual(dtcs.map((d) => d.code), ["P0143", "B1601"]);
+  const bytes = await elm.request(BCM, BCM_RESP, Uint8Array.from([0x19, 0x02, 0xff]));
+  assert.deepEqual([...bytes], [0x59, 0x02, 0xff, 0x01, 0x43, 0x00, 0x08, 0x96, 0x01, 0x00, 0x08]);
 });
 
-test("Elm327 + UDS read DID (multi-frame VIN)", async () => {
+test("Elm327.request reassembles a multi-frame VIN DID", async () => {
   const elm = new Elm327(new LoopbackStream(ECUS));
   await elm.open();
-  const data = await new UdsClient((a, b, p) => elm.request(a, b, p), BCM, BCM_RESP).readDid(0xf190);
-  assert.equal(dec.decode(data), VIN);
-});
-
-test("full scanPlatform through the ELM327 loopback", async () => {
-  const elm = new Elm327(new LoopbackStream(ECUS));
-  await elm.open();
-  const platform = {
-    modules: [
-      { id: "bcm", name: "BCM", requestId: BCM, responseId: BCM_RESP,
-        dids: [{ id: 0xf190, name: "VIN", kind: "live", decode: "ascii" }],
-        dtcs: { B1601: "Key/transponder not programmed" } },
-      { id: "abs", name: "ABS", requestId: 0x18da28f1, responseId: 0x18daf128 },
-    ],
-  };
-  const results = Object.fromEntries(
-    (await scanPlatform((a, b, p) => elm.request(a, b, p), platform, { readData: true }))
-      .map((r) => [r.module_id, r]));
-  assert.deepEqual(results.bcm.dtcs.map((d) => d.code), ["P0143", "B1601"]);
-  assert.equal(results.bcm.dtcs[1].description, "Key/transponder not programmed");
-  assert.equal(results.bcm.data.VIN, VIN);
-  assert.equal(results.abs.reachable, false);
+  const bytes = await elm.request(BCM, BCM_RESP, Uint8Array.from([0x22, 0xf1, 0x90]));
+  assert.equal(dec.decode(bytes.slice(3)), VIN);
 });

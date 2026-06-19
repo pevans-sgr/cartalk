@@ -24,8 +24,6 @@
     </p>
 
     <section class="controls">
-      <label for="vehicle">Vehicle</label>
-      <select id="vehicle"></select>
       <label for="baud">Adapter baud</label>
       <select id="baud">
         <option value="115200" selected>115200 (default)</option>
@@ -37,23 +35,56 @@
         <option value="1000000">1000000</option>
         <option value="2000000">2000000</option>
       </select>
-      <label class="check"><input type="checkbox" id="readData"> read live data</label>
       <div class="buttons">
         <button id="connectBtn">Connect adapter</button>
         <button id="testBtn" disabled>Test connection</button>
-        <button id="discoverBtn" disabled>Discover modules</button>
-        <button id="scanBtn" disabled>Scan all modules</button>
       </div>
     </section>
 
-    <section class="controls" id="obd2" hidden>
-      <strong>Generic OBD-II — works on this vehicle</strong>
+    <nav class="tabs" role="tablist">
+      <button id="tabObd" class="tab active" role="tab" aria-selected="true">Generic OBD-II</button>
+      <button id="tabGuided" class="tab" role="tab" aria-selected="false">Shifter / Power fault</button>
+    </nav>
+
+    <section id="modeObd" class="mode" role="tabpanel">
+      <p class="mode-desc">
+        Emissions-standard services (SAE J1979) that work on <strong>any</strong> vehicle through
+        the gateway — no SGW bypass needed.
+      </p>
       <div class="buttons">
         <button id="liveBtn" disabled>Live data</button>
         <button id="codesBtn" disabled>Read codes</button>
         <button id="vinBtn" disabled>Vehicle info</button>
         <button id="clearBtn" disabled>Clear codes</button>
       </div>
+    </section>
+
+    <section id="modeGuided" class="mode" role="tabpanel" hidden>
+      <p class="mode-desc">
+        Guided check for the intermittent <strong>shifter-lock / forced-Park</strong> fault. The
+        clue that it clears only by resetting the negative-terminal battery sensor points at
+        <strong>power management (IBS)</strong>, not the shifter itself. These steps use generic
+        OBD-II — no SGW bypass needed.
+      </p>
+      <ol class="workflow">
+        <li>
+          <strong>1. Fault codes</strong>
+          <p>Read stored / pending powertrain codes and the check-engine status.</p>
+          <div class="buttons"><button id="gCodesBtn" disabled>Read codes</button></div>
+        </li>
+        <li>
+          <strong>2. Power monitor</strong>
+          <p>
+            Watch module voltage, RPM and run-time live. Leave it running and drive until the fault
+            trips — a voltage sag or spike at that moment implicates the battery sensor / charging
+            path. Stop to download the captured log.
+          </p>
+          <div class="buttons">
+            <button id="gMonBtn" disabled>Start monitor</button>
+            <button id="gMonSave" disabled hidden>⤓ Download log (.jsonl)</button>
+          </div>
+        </li>
+      </ol>
     </section>
 
     <section id="status" class="status" hidden></section>

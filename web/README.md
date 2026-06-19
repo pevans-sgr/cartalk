@@ -1,27 +1,34 @@
 # cartalk web — browser (WebUSB) diagnostics
 
-A **static** web app: open it in Chrome, plug in an FTDI OBD adapter, scan the vehicle.
+A **static** web app: open it in Chrome, plug in an FTDI OBD adapter, run a check.
 No install, no server — it runs entirely in the browser and is deployable as a GitHub Page.
-This is the on-the-go counterpart to the Python engine in the repo root (same protocol
-logic, ported to JavaScript and unit-tested in Node).
+
+The app has **two modes**:
+- **Generic OBD-II** — emissions-standard (SAE J1979) live data, codes, VIN, and clear.
+  Works on any vehicle through the gateway, no SGW bypass.
+- **Shifter / Power fault** — a guided check for the intermittent shifter-lock / forced-Park
+  fault, built on generic OBD-II (module-voltage power monitor + code read). See
+  [`../docs/vehicle-owner-issues.md`](../docs/vehicle-owner-issues.md).
+
+> Enhanced per-module diagnostics (the all-module UDS scan) were removed: on this platform
+> they sit behind the Security Gateway and are proprietary/11-bit, so a 29-bit sweep returns
+> nothing. See [`../docs/feasibility-shifter-ess.md`](../docs/feasibility-shifter-ess.md).
 
 ## How it works
 
 ```
 Chrome (Android/desktop) ──WebUSB──▶ FTDI adapter (FT230X) ──OBD──▶ vehicle
-   app.js → lib/elm327.js → lib/isotp.js + lib/uds.js + lib/dtc.js → lib/scan.js
-            lib/ftdi-webusb.js (WebUSB FTDI driver)   lib/db.js (fetch JSON definitions)
+   app.js → lib/elm327.js → lib/isotp.js + lib/dtc.js → lib/obd2.js
+            lib/ftdi-webusb.js (WebUSB FTDI driver)
 ```
 
 - `lib/` — the engine, plain ES modules (no build step):
-  - `dtc.js`, `isotp.js`, `uds.js`, `scan.js`, `db.js`, `transcript.js` — pure logic,
-    Node-tested in `test/` (`npm test` / `node --test test/`).
+  - `dtc.js`, `isotp.js`, `obd2.js` — pure logic, Node-tested in `test/`
+    (`npm test` / `node --test test/`).
   - `ftdi-webusb.js` — the FT230X WebUSB driver (baud encoder is Node-tested; the USB I/O
     is browser-only).
-  - `elm327.js` — ELM327 command layer + 29-bit FCA addressing (Node-tested via a loopback
+  - `elm327.js` — ELM327 command layer + ISO-TP reassembly (Node-tested via a loopback
     stream).
-- `db/*.json` — vehicle definitions, generated from the canonical YAML by
-  `scripts/build-web-db.py` (run it after editing a definition).
 
 ## Requirements & caveats
 

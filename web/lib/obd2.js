@@ -121,6 +121,23 @@ export class GenericObd {
     return out;
   }
 
+  /**
+   * Read a specific, fixed set of Mode-01 PIDs once — no supported-PID probe, so a polling
+   * loop (the power monitor) stays fast. Unknown/undecodable PIDs are skipped.
+   * @param {number[]} ids
+   */
+  async readPids(ids) {
+    const out = [];
+    for (const id of ids) {
+      const cmd = "01" + id.toString(16).toUpperCase().padStart(2, "0");
+      for (const p of await this._payloads(cmd)) {
+        const v = decodeLive(id, p);
+        if (v) { out.push(v); break; }
+      }
+    }
+    return out;
+  }
+
   async readDtcs() {
     const collect = async (mode) => {
       const codes = [];

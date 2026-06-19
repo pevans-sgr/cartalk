@@ -5,13 +5,12 @@
 // fails (offline), it serves the cached copy. skipWaiting + clients.claim mean a freshly
 // deployed version activates immediately; the page then auto-reloads (see app.js).
 
-const CACHE = "cartalk-v2";
+const CACHE = "cartalk-v3";
 const ASSETS = [
   "./", "./index.html", "./style.css", "./app.js",
   "./manifest.webmanifest", "./icon.svg",
-  "./lib/dtc.js", "./lib/isotp.js", "./lib/uds.js", "./lib/db.js",
-  "./lib/scan.js", "./lib/transcript.js", "./lib/ftdi-webusb.js", "./lib/elm327.js",
-  "./db/index.json", "./db/chrysler-pacifica_2018.json",
+  "./lib/dtc.js", "./lib/isotp.js", "./lib/obd2.js",
+  "./lib/ftdi-webusb.js", "./lib/elm327.js",
 ];
 
 self.addEventListener("install", (event) => {
