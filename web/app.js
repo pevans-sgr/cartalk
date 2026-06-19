@@ -7,10 +7,13 @@ import { Elm327 } from "./lib/elm327.js";
 import { loadPlatform } from "./lib/db.js";
 import { scanPlatform } from "./lib/scan.js";
 import { Transcript, loggingSend } from "./lib/transcript.js";
+import { GenericObd } from "./lib/obd2.js";
 
 const $ = (id) => document.getElementById(id);
 const REPO = "pevans-sgr/cartalk";   // where "Send session" files an issue
 let elm = null;            // connected Elm327 instance
+let obd = null;            // GenericObd (generic OBD-II) over the same elm
+let liveRunning = false;
 let lastTranscript = null; // for the download + send buttons
 let lastSummary = "";
 
@@ -95,12 +98,15 @@ async function connect() {
     const e = new Elm327(ftdi, log);
     await e.open();
     elm = e;
+    obd = new GenericObd(e);
     $("conn").textContent = "connected";
     $("conn").classList.add("on");
     $("scanBtn").disabled = false;
     $("testBtn").disabled = false;
     $("discoverBtn").disabled = false;
-    setStatus("Adapter connected. Try 'Test connection', then 'Discover modules'.");
+    $("obd2").hidden = false;
+    for (const id of ["liveBtn", "codesBtn", "vinBtn", "clearBtn"]) $(id).disabled = false;
+    setStatus("Adapter connected. Use the Generic OBD-II buttons (live data, codes, VIN).");
   } catch (err) {
     setStatus(`Connect failed: ${err.message}`, true);
   } finally {
@@ -130,6 +136,103 @@ async function testConnection() {
     setStatus("Test failed: " + e.message, true);
   } finally {
     $("testBtn").disabled = false;
+    setBusy(false);
+  }
+}
+
+async function ensureObd() {
+  if (!obd.ready) { setStatus("Initializing OBD-II…"); await obd.init(); }
+}
+
+function renderLive(rows) {
+  $("results").innerHTML = `<div class="module"><h2><span>Live data</span></h2>`
+    + (rows.length
+      ? rows.map((r) => `<div class="datum"><span class="k">${r.name}</span><span>${r.value} ${r.unit}</span></div>`).join("")
+      : `<div class="none">No supported live PIDs returned data</div>`)
+    + `</div>`;
+}
+
+async function toggleLive() {
+  if (liveRunning) { liveRunning = false; return; }   // the loop below clears UI state
+  try {
+    await ensureObd();
+  } catch (e) { setStatus("OBD init failed: " + e.message, true); return; }
+  liveRunning = true;
+  setBusy(true);
+  $("liveBtn").textContent = "Stop";
+  setStatus("Live data (refreshing)…");
+  while (liveRunning) {
+    try {
+      renderLive(await obd.readLive());
+    } catch (e) {
+      setStatus("Live read error: " + e.message, true);
+      break;
+    }
+    await new Promise((r) => setTimeout(r, 300));
+  }
+  liveRunning = false;
+  $("liveBtn").textContent = "Live data";
+  setBusy(false);
+}
+
+async function readCodes() {
+  if (liveRunning) { liveRunning = false; }
+  setBusy(true);
+  setStatus("Reading trouble codes…");
+  try {
+    await ensureObd();
+    const { stored, pending, permanent } = await obd.readDtcs();
+    const status = await obd.readStatus();
+    const section = (title, codes) =>
+      `<h2><span>${title}</span></h2>` + (codes.length
+        ? codes.map((c) => `<div class="dtc"><code>${c}</code></div>`).join("")
+        : `<div class="none">none</div>`);
+    const mil = status ? `<div class="datum"><span class="k">MIL (check engine)</span><span>${status.milOn ? "ON" : "off"}</span></div>` : "";
+    $("results").innerHTML = `<div class="module">${mil}`
+      + section("Stored codes", stored) + section("Pending codes", pending)
+      + section("Permanent codes", permanent) + `</div>`;
+    const total = stored.length + pending.length + permanent.length;
+    setStatus(`${total} code(s): ${stored.length} stored, ${pending.length} pending, ${permanent.length} permanent`);
+  } catch (e) {
+    setStatus("Read codes failed: " + e.message, true);
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function vehicleInfo() {
+  if (liveRunning) { liveRunning = false; }
+  setBusy(true);
+  setStatus("Reading vehicle info…");
+  try {
+    await ensureObd();
+    const vin = await obd.readVin();
+    const status = await obd.readStatus();
+    $("results").innerHTML = `<div class="module"><h2><span>Vehicle info</span></h2>`
+      + `<div class="datum"><span class="k">VIN</span><span>${vin || "(not reported)"}</span></div>`
+      + (status ? `<div class="datum"><span class="k">MIL</span><span>${status.milOn ? "ON" : "off"}</span></div>`
+        + `<div class="datum"><span class="k">Stored codes</span><span>${status.dtcCount}</span></div>` : "")
+      + `</div>`;
+    setStatus(vin ? `VIN: ${vin}` : "Read vehicle info.");
+  } catch (e) {
+    setStatus("Vehicle info failed: " + e.message, true);
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function clearCodes() {
+  if (!confirm("Clear stored trouble codes and turn off the check-engine light?\n\nThis erases freeze-frame data and resets emissions monitors. Only do this after you've addressed the fault.")) return;
+  if (liveRunning) { liveRunning = false; }
+  setBusy(true);
+  setStatus("Clearing codes…");
+  try {
+    await ensureObd();
+    await obd.clearDtcs();
+    setStatus("✅ Cleared. Re-read codes to confirm (monitors will show 'not ready' for a while).");
+  } catch (e) {
+    setStatus("Clear failed: " + e.message, true);
+  } finally {
     setBusy(false);
   }
 }
@@ -283,6 +386,10 @@ async function init() {
   $("testBtn").addEventListener("click", testConnection);
   $("discoverBtn").addEventListener("click", discoverModules);
   $("scanBtn").addEventListener("click", runScan);
+  $("liveBtn").addEventListener("click", toggleLive);
+  $("codesBtn").addEventListener("click", readCodes);
+  $("vinBtn").addEventListener("click", vehicleInfo);
+  $("clearBtn").addEventListener("click", clearCodes);
   $("downloadBtn").addEventListener("click", downloadLog);
   $("sendBtn").addEventListener("click", sendToGithub);
 }

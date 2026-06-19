@@ -115,6 +115,24 @@ export class Elm327 {
     return { found, verdict };
   }
 
+  /** Reset to a clean generic OBD-II state (auto protocol, default headers/filters). */
+  async setGenericMode() {
+    await this._command("ATD");    // all settings to defaults (clears ATCP/ATSH/filters)
+    await this._command("ATE0");   // echo off
+    await this._command("ATL0");   // linefeeds off
+    await this._command("ATS0");   // spaces off
+    await this._command("ATH1");   // headers on (to demux multiple ECUs)
+    await this._command("ATSP0");  // automatic protocol detection
+    await this._command("ATAT1");  // adaptive timing
+    this._proto = "0";
+    this._target = null;
+  }
+
+  /** Send a raw OBD-II command and return the ELM text (caller parses). */
+  async obd(cmd, timeoutMs = 3000) {
+    return this._command(cmd, timeoutMs);
+  }
+
   async _command(cmd, timeoutMs = 2000) {
     if (this.stream.resetInput) await this.stream.resetInput();
     await this.stream.write(enc.encode(cmd + "\r"));
