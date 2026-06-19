@@ -20,12 +20,10 @@ modules:
         name: VIN
         kind: live
         decode: ascii
-      # Auto stop-start (ESS) configuration — the first real write target (Phase 3).
-      # DID and encoding are UNVERIFIED placeholders pending reverse engineering.
-      - id: 0x2001
-        name: Auto Stop-Start Configured
-        kind: config
-        decode: enum:0=disabled,1=enabled
+      # NOTE: no auto stop-start (ESS) config DID is listed here on purpose. No such
+      # configurable parameter is known to exist on this platform — ESS is not disableable
+      # even via AlfaOBD; the aftermarket fix is a hardware dongle. A real config DID would
+      # only come from Phase 2 capture, not open data. See docs/feasibility-shifter-ess.md.
     routines:
       - id: 0x0203
         name: Proxi Configuration Alignment
