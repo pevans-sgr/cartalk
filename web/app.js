@@ -139,27 +139,28 @@ async function discoverModules() {
   setBusy(true);
   $("discoverBtn").disabled = true;
   $("results").innerHTML = "";
-  setStatus("Sweeping physical addresses 0x18DA00F1…0xFFF1 (under a minute)…");
+  setStatus("Sweeping physical addresses 0x18DA00F1…0xFFF1 (~30–40s)…");
   try {
     let lastN = 0;
-    const found = await elm.discoverModules((xx, n, last) => {
+    const { found, verdict } = await elm.discoverModules((xx, n, last) => {
       const hx = xx.toString(16).toUpperCase().padStart(2, "0");
       setStatus(`Probing modules… 0x${hx} / FF · ${n} found`);   // live, every probe
       if (n > lastN && last) { log(`  ✓ module 0x${last.addr} → ${last.raw.replace(/\s+/g, " ").trim()}`); lastN = n; }
-      else if (xx % 32 === 0) log(`…swept through 0x${hx} (${n} found)`);
+      else if (xx % 16 === 0) log(`…swept through 0x${hx} (${n} found)`);
     });
-    log(`physical 29-bit sweep complete: ${found.length} module(s) responded`);
-    found.forEach((f) => log(`  module 0x${f.addr} (resp 0x18DAF1${f.addr}) → ${JSON.stringify(f.raw).slice(0, 90)}`));
     if (found.length) {
       $("results").innerHTML = `<div class="module"><h2><span>Discovered ${found.length} module(s)</span></h2>`
         + found.map((f) => `<div class="dtc"><code>0x18DA${f.addr}F1</code><span>module addr 0x${f.addr}</span></div>`).join("")
         + `</div>`;
-      setStatus(`✅ Found ${found.length} module(s). Send the log and I'll name them and set the real addresses.`);
+      setStatus(`✅ Found ${found.length} module(s) on 29-bit. Send the log and I'll set the real addresses.`);
       lastSummary = "Physical 29-bit address sweep\nResponders (request → reply):\n"
         + found.map((f) => `  0x18DA${f.addr}F1 → ${f.raw.replace(/\s+/g, " ").trim()}`).join("\n");
+    } else if (verdict === "empty-29bit") {
+      setStatus("Definitive: 29-bit works but NO enhanced module answers — enhanced diag is 11-bit/proprietary. Send the log.", true);
+      lastSummary = "29-bit sweep: 0 modules; ELM returned NO DATA on all 256 (29-bit works, no enhanced replies).";
     } else {
-      setStatus("No module answered physical 29-bit either. Next we try an 11-bit sweep — send the log.", true);
-      lastSummary = "Physical 29-bit sweep: 0 responders (only generic 11-bit OBD works on this bus).";
+      setStatus("Definitive: the adapter doesn't answer on 29-bit at all (generic OBD is 11-bit). Send the log.", true);
+      lastSummary = "29-bit sweep: 0 modules, no ELM replies — 29-bit not usable on this vehicle.";
     }
   } catch (e) {
     setStatus("Discover failed: " + e.message, true);
