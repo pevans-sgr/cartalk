@@ -5,7 +5,7 @@
 // fails (offline), it serves the cached copy. skipWaiting + clients.claim mean a freshly
 // deployed version activates immediately; the page then auto-reloads (see app.js).
 
-const CACHE = "cartalk-v1";
+const CACHE = "cartalk-v2";
 const ASSETS = [
   "./", "./index.html", "./style.css", "./app.js",
   "./manifest.webmanifest", "./icon.svg",
@@ -31,8 +31,10 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   const req = event.request;
   if (req.method !== "GET" || new URL(req.url).origin !== self.location.origin) return;
+  // cache: "reload" bypasses the HTTP cache so a deploy actually reaches the user
+  // (plain network-first still served stale browser-cached copies).
   event.respondWith(
-    fetch(req)
+    fetch(req, { cache: "reload" })
       .then((res) => {
         const copy = res.clone();
         caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => {});
