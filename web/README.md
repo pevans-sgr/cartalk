@@ -3,16 +3,22 @@
 A **static** web app: open it in Chrome, plug in an FTDI OBD adapter, run a check.
 No install, no server — it runs entirely in the browser and is deployable as a GitHub Page.
 
-The app has **two modes**:
+The app has **three modes**:
 - **Generic OBD-II** — emissions-standard (SAE J1979) live data, codes, VIN, and clear.
   Works on any vehicle through the gateway, no SGW bypass.
-- **Shifter / Power fault** — a guided check for the intermittent shifter-lock / forced-Park
+- **Shifter / Power** — a guided check for the intermittent shifter-lock / forced-Park
   fault, built on generic OBD-II (module-voltage power monitor + code read). See
   [`../docs/vehicle-owner-issues.md`](../docs/vehicle-owner-issues.md).
+- **Enhanced sweep** — a comprehensive **11-bit** UDS sweep of the 500 kbps HS-CAN: probes
+  every diagnostic address (0x600–0x7FF), then reads **DTCs + module identification** from
+  every responder (`lib/sweep.js`). Reading needs no SecurityAccess — just the SGW bypass for
+  non-powertrain modules. This is the enhanced read that surfaces U-codes (e.g. the TCM's
+  shifter codes) that generic OBD-II filters out.
 
-> Enhanced per-module diagnostics (the all-module UDS scan) were removed: on this platform
-> they sit behind the Security Gateway and are proprietary/11-bit, so a 29-bit sweep returns
-> nothing. See [`../docs/feasibility-shifter-ess.md`](../docs/feasibility-shifter-ess.md).
+> The earlier *29-bit* all-module scan was removed: FCA enhanced diag on this platform is
+> 11-bit, so a 29-bit sweep returns nothing — which the Enhanced-sweep mode corrects. What
+> open data still can't supply is config-write encodings and the 0x27 seed/key (a separate,
+> harder problem). See [`../docs/feasibility-shifter-ess.md`](../docs/feasibility-shifter-ess.md).
 
 ## How it works
 

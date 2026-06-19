@@ -6,6 +6,7 @@
 import { requestFtdiPort } from "./lib/ftdi-webusb.js";
 import { Elm327 } from "./lib/elm327.js";
 import { GenericObd } from "./lib/obd2.js";
+import { discover, interrogate } from "./lib/sweep.js";
 
 const $ = (id) => document.getElementById(id);
 const REPO = "pevans-sgr/cartalk";   // where "Send session" files an issue
@@ -14,10 +15,12 @@ let obd = null;            // GenericObd (generic OBD-II) over the same elm
 let liveRunning = false;   // generic live-data loop active
 let monRunning = false;    // guided power-monitor loop active
 let monSamples = [];       // captured monitor samples, downloaded as JSONL
+let sweepRunning = false;  // enhanced 11-bit sweep active
+let sweepResults = [];     // interrogated modules, downloaded as JSON
 let lastSummary = "";      // header line for the downloaded / sent log
 
 // Buttons enabled once the adapter is connected.
-const CONNECTED_BTNS = ["testBtn", "liveBtn", "codesBtn", "vinBtn", "clearBtn", "gCodesBtn", "gMonBtn"];
+const CONNECTED_BTNS = ["testBtn", "liveBtn", "codesBtn", "vinBtn", "clearBtn", "gCodesBtn", "gMonBtn", "sweepBtn"];
 
 // Busy = a connect/scan is in progress; defer any auto-reload until it finishes so an
 // update never interrupts talking to the car.
@@ -69,15 +72,16 @@ function currentLogText() {
 
 // -- mode switching ---------------------------------------------------------
 
+const MODES = { obd: ["tabObd", "modeObd"], guided: ["tabGuided", "modeGuided"], sweep: ["tabSweep", "modeSweep"] };
+
 function switchMode(mode) {
-  const isObd = mode === "obd";
-  $("tabObd").classList.toggle("active", isObd);
-  $("tabGuided").classList.toggle("active", !isObd);
-  $("tabObd").setAttribute("aria-selected", String(isObd));
-  $("tabGuided").setAttribute("aria-selected", String(!isObd));
-  $("modeObd").hidden = !isObd;
-  $("modeGuided").hidden = isObd;
-  liveRunning = false; monRunning = false;   // stop any loop when leaving a mode
+  for (const [key, [tab, panel]] of Object.entries(MODES)) {
+    const active = key === mode;
+    $(tab).classList.toggle("active", active);
+    $(tab).setAttribute("aria-selected", String(active));
+    $(panel).hidden = !active;
+  }
+  liveRunning = false; monRunning = false; sweepRunning = false;  // stop any loop when leaving
   $("results").innerHTML = "";
   setStatus("");
 }
@@ -298,6 +302,112 @@ function saveMonitor() {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+// -- enhanced 11-bit sweep --------------------------------------------------
+
+function renderSweepModule(m) {
+  const card = document.createElement("div");
+  card.className = "module";
+  const reqHex = m.reqId.toString(16).toUpperCase();
+  const respHex = m.respId.toString(16).toUpperCase();
+  card.innerHTML = `<h2><span>Module <code>0x${reqHex}</code></span><span class="id">→ 0x${respHex}</span></h2>`;
+  for (const [k, v] of Object.entries(m.ident)) {
+    card.insertAdjacentHTML("beforeend", `<div class="datum"><span class="k">${k}</span><span>${v}</span></div>`);
+  }
+  if (m.dtcs.length === 0) {
+    card.insertAdjacentHTML("beforeend", `<div class="none">No fault codes</div>`);
+  }
+  for (const d of m.dtcs) {
+    const flags = d.flags?.length ? `<span class="flags">[${d.flags.join(", ")}]</span>` : "";
+    card.insertAdjacentHTML("beforeend", `<div class="dtc"><code>${d.code}</code>${flags}</div>`);
+  }
+  for (const e of m.errors || []) {
+    card.insertAdjacentHTML("beforeend", `<div class="none">${e}</div>`);
+  }
+  $("results").appendChild(card);
+}
+
+function buildSweepSummary(results) {
+  const lines = [`Enhanced 11-bit sweep: ${results.length} module(s) responded`, ""];
+  for (const m of results) {
+    lines.push(`0x${m.reqId.toString(16).toUpperCase()} → 0x${m.respId.toString(16).toUpperCase()}`);
+    for (const [k, v] of Object.entries(m.ident)) lines.push(`    ${k}: ${v}`);
+    for (const d of m.dtcs) lines.push(`    ${d.code}${d.flags?.length ? " [" + d.flags.join(", ") + "]" : ""}`);
+    for (const e of m.errors || []) lines.push(`    (${e})`);
+  }
+  return lines.join("\n");
+}
+
+async function runSweep() {
+  if (!elm) return;
+  if (sweepRunning) { sweepRunning = false; return; }   // toggle = stop
+  sweepRunning = true;
+  setBusy(true);
+  if (obd) obd.ready = false;          // we reconfigure the ELM; force generic re-init later
+  sweepResults = [];
+  $("results").innerHTML = "";
+  $("sweepBtn").textContent = "Stop sweep";
+  $("sweepSave").hidden = true;
+  $("sweepSave").disabled = true;
+  setStatus("Configuring 11-bit enhanced mode…");
+  try {
+    await elm.setEnhanced11Mode();
+    setStatus("Sweeping 0x600–0x7FF for responders…");
+    const found = await discover(elm, {
+      onProgress: (req, to, n) => {
+        if (req % 8 === 0 || n) setStatus(`Probing 0x${req.toString(16).toUpperCase()} / ${to.toString(16).toUpperCase()} · ${n} module(s) found`);
+      },
+      shouldStop: () => !sweepRunning,
+    });
+    if (found.length) {
+      log(`sweep discovery: ${found.map((f) => `0x${f.reqId.toString(16)}→0x${f.respId.toString(16)}`).join(", ")}`);
+    }
+    if (!sweepRunning) {
+      setStatus(`Stopped — ${found.length} module(s) found, not yet read.`);
+    } else if (found.length === 0) {
+      setStatus("Sweep complete: no module answered enhanced 11-bit. With the SGW bypass in and key in RUN, "
+        + "this means enhanced diag isn't on the 500 kbps bus as probed — try the 125 kbps interior pass.", true);
+    } else {
+      setStatus(`Found ${found.length} module(s). Reading DTCs + identification…`);
+      for (const mod of found) {
+        if (!sweepRunning) break;
+        setStatus(`Reading 0x${mod.reqId.toString(16).toUpperCase()}…`);
+        const r = await interrogate(elm, mod.reqId, mod.respId);
+        sweepResults.push(r);
+        renderSweepModule(r);
+      }
+      const totalDtcs = sweepResults.reduce((n, m) => n + m.dtcs.length, 0);
+      setStatus(`Done — ${sweepResults.length} module(s), ${totalDtcs} DTC(s) total.`);
+      lastSummary = buildSweepSummary(sweepResults);
+      const have = sweepResults.length > 0;
+      $("sweepSave").hidden = !have;
+      $("sweepSave").disabled = !have;
+    }
+  } catch (e) {
+    setStatus("Sweep failed: " + e.message, true);
+  } finally {
+    sweepRunning = false;
+    setBusy(false);
+    $("sweepBtn").textContent = "Start sweep";
+  }
+}
+
+function saveSweep() {
+  if (!sweepResults.length) return;
+  const out = sweepResults.map((m) => ({
+    request: `0x${m.reqId.toString(16).toUpperCase()}`,
+    response: `0x${m.respId.toString(16).toUpperCase()}`,
+    identification: m.ident,
+    dtcs: m.dtcs.map((d) => ({ code: d.code, status: d.status, flags: d.flags })),
+    errors: m.errors,
+  }));
+  const url = URL.createObjectURL(new Blob([JSON.stringify(out, null, 2)], { type: "application/json" }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "cartalk-enhanced-sweep.json";
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 // -- log download / send ----------------------------------------------------
 
 function downloadLog() {
@@ -357,6 +467,7 @@ function init() {
   $("testBtn").addEventListener("click", testConnection);
   $("tabObd").addEventListener("click", () => switchMode("obd"));
   $("tabGuided").addEventListener("click", () => switchMode("guided"));
+  $("tabSweep").addEventListener("click", () => switchMode("sweep"));
   $("liveBtn").addEventListener("click", toggleLive);
   $("codesBtn").addEventListener("click", readCodes);
   $("vinBtn").addEventListener("click", vehicleInfo);
@@ -364,6 +475,8 @@ function init() {
   $("gCodesBtn").addEventListener("click", readCodes);
   $("gMonBtn").addEventListener("click", toggleMonitor);
   $("gMonSave").addEventListener("click", saveMonitor);
+  $("sweepBtn").addEventListener("click", runSweep);
+  $("sweepSave").addEventListener("click", saveSweep);
   $("downloadBtn").addEventListener("click", downloadLog);
   $("sendBtn").addEventListener("click", sendToGithub);
 }

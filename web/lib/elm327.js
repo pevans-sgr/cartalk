@@ -62,6 +62,51 @@ export class Elm327 {
     return { pids, dtcs };
   }
 
+  /**
+   * Configure for an 11-bit enhanced-diagnostics sweep on the 500 kbps HS-CAN with an open
+   * receive filter bounded to the diagnostic ID range (0x600–0x7FF), so any responder is
+   * captured for discovery while broadcast traffic (0x1xx–0x3xx) is filtered out.
+   */
+  async setEnhanced11Mode() {
+    await this._command("ATD");      // defaults (clears prior headers/filters)
+    await this._command("ATE0");     // echo off
+    await this._command("ATL0");     // linefeeds off
+    await this._command("ATS0");     // spaces off
+    await this._command("ATH1");     // headers on → read responder ids
+    await this._command("ATSP6");    // ISO 15765-4, 11-bit, 500 kbps
+    await this._command("ATAT0");    // fixed timing
+    await this._command("ATST20");   // ~128ms response window → fast NO DATA on silent ids
+    await this._command("ATCM600");  // receive mask: bits 9,10
+    await this._command("ATCF600");  // filter: accept 0x600–0x7FF only
+    this._proto = "6";
+    this._target = null;
+  }
+
+  /**
+   * Send a payload to an 11-bit request id with the open receive filter (from
+   * setEnhanced11Mode) in effect; return a Map of responderId -> reassembled bytes. Used for
+   * discovery, where the response id is unknown. NO DATA / bus noise yields an empty Map.
+   */
+  async sendOpen(reqId, payload, timeoutMs = 1000) {
+    const key = `open:${reqId}`;
+    if (this._target !== key) {
+      await this._command(`ATSH${reqId.toString(16).toUpperCase().padStart(3, "0")}`);
+      this._target = key;
+    }
+    let raw;
+    try {
+      raw = await this._command(typeof payload === "string" ? payload : hex(Uint8Array.from(payload)), timeoutMs);
+    } catch (_) {
+      return new Map();
+    }
+    const lines = raw.split(/[\r\n]+/).map((s) => s.trim()).filter(Boolean);
+    try {
+      return reassemble(lines, ID_LEN_11BIT);
+    } catch (_) {
+      return new Map();  // NO DATA / frame error → no responder at this address
+    }
+  }
+
   /** Reset to a clean generic OBD-II state (auto protocol, default headers/filters). */
   async setGenericMode() {
     await this._command("ATD");    // all settings to defaults (clears ATCP/ATSH/filters)

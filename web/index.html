@@ -43,7 +43,8 @@
 
     <nav class="tabs" role="tablist">
       <button id="tabObd" class="tab active" role="tab" aria-selected="true">Generic OBD-II</button>
-      <button id="tabGuided" class="tab" role="tab" aria-selected="false">Shifter / Power fault</button>
+      <button id="tabGuided" class="tab" role="tab" aria-selected="false">Shifter / Power</button>
+      <button id="tabSweep" class="tab" role="tab" aria-selected="false">Enhanced sweep</button>
     </nav>
 
     <section id="modeObd" class="mode" role="tabpanel">
@@ -85,6 +86,24 @@
           </div>
         </li>
       </ol>
+    </section>
+
+    <section id="modeSweep" class="mode" role="tabpanel" hidden>
+      <p class="mode-desc">
+        Comprehensive <strong>11-bit enhanced</strong> sweep of the 500 kbps HS-CAN: probes every
+        diagnostic address (0x600–0x7FF), then reads <strong>DTCs + module identification</strong>
+        from everything that answers. Reading needs no security access — just the
+        <strong>SGW bypass</strong> (for non-powertrain modules) and the key in RUN. Empirical:
+        it reports whatever responds.
+      </p>
+      <div class="buttons">
+        <button id="sweepBtn" disabled>Start sweep</button>
+        <button id="sweepSave" disabled hidden>⤓ Download results (.json)</button>
+      </div>
+      <p class="fineprint">
+        Covers the 500 kbps powertrain bus — where the TCM (and its <code>U1267</code> shifter
+        codes) lives. The 125 kbps interior bus (CAN-IHS: BCM, cluster, doors) is a separate pass.
+      </p>
     </section>
 
     <section id="status" class="status" hidden></section>

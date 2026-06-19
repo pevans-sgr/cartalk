@@ -34,7 +34,8 @@ button:disabled { opacity: .5; cursor: default; }
 /* Mode tabs + panels */
 .tabs { display: flex; gap: .35rem; margin-top: 1rem; }
 .tab { flex: 1; background: var(--panel); color: var(--muted); font-weight: 600;
-  border-radius: .6rem .6rem 0 0; padding: .7rem; border-bottom: 2px solid transparent; }
+  font-size: .85rem; border-radius: .6rem .6rem 0 0; padding: .7rem .4rem;
+  border-bottom: 2px solid transparent; white-space: nowrap; }
 .tab.active { color: var(--ink); border-bottom-color: var(--accent); }
 .mode { background: var(--panel); padding: 1rem; border-radius: 0 0 .6rem .6rem; }
 .mode-desc { color: var(--muted); font-size: .85rem; margin: 0 0 .9rem; }
