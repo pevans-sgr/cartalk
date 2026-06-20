@@ -28,8 +28,28 @@ let busy = false;
 let pendingReload = false;
 function setBusy(v) {
   busy = v;
-  if (!busy && pendingReload) location.reload();
+  if (v) requestWakeLock();              // keep the screen on while anything runs
+  else { releaseWakeLock(); if (pendingReload) location.reload(); }
 }
+
+// Screen Wake Lock: phones sleep the screen and throttle timers, which stalls the live /
+// monitor / sweep loops. Hold a lock while busy so a long sweep runs to completion untouched.
+let wakeLock = null;
+async function requestWakeLock() {
+  if (!("wakeLock" in navigator) || wakeLock) return;
+  try {
+    wakeLock = await navigator.wakeLock.request("screen");
+    wakeLock.addEventListener("release", () => { wakeLock = null; });
+  } catch (_) { /* unsupported or rejected (e.g. page not visible) — non-fatal */ }
+}
+function releaseWakeLock() {
+  if (wakeLock) { try { wakeLock.release(); } catch (_) {} wakeLock = null; }
+}
+// The OS auto-releases the lock if the page is ever hidden; reacquire when visible again
+// mid-operation so the loop keeps the screen awake.
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && busy && !wakeLock) requestWakeLock();
+});
 
 // Service worker: network-first (always latest online), offline fallback, and auto-reload
 // when a new version deploys — so no more manual hard-refresh.

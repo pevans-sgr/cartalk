@@ -5,7 +5,7 @@
 // fails (offline), it serves the cached copy. skipWaiting + clients.claim mean a freshly
 // deployed version activates immediately; the page then auto-reloads (see app.js).
 
-const CACHE = "cartalk-v4";
+const CACHE = "cartalk-v5";
 const ASSETS = [
   "./", "./index.html", "./style.css", "./app.js",
   "./manifest.webmanifest", "./icon.svg",
