@@ -67,6 +67,20 @@ test("discover + interrogate: finds the module and reads its U-code + VIN", asyn
   assert.equal(r.errors.length, 0);
 });
 
+test("discover skips the OBD functional id (0x7DF) and dedupes by response id", async () => {
+  // The van showed both 0x7DF and 0x7E0 answering on 0x7E8 (one physical module, the PCM).
+  const present = new Map([[0x7e8, Uint8Array.from([0x7f, 0x10, 0x12])]]);  // present, refused session
+  const elm = {
+    async sendOpen(reqId) {
+      if (reqId === 0x7df || reqId === 0x7e0) return present;
+      if (reqId === 0x7e1) return new Map([[0x7e9, Uint8Array.from([0x50, 0x03])]]);
+      return new Map();
+    },
+  };
+  const found = await discover(elm, { range: { from: 0x7dd, to: 0x7e1 } });
+  assert.deepEqual(found, [{ reqId: 0x7e0, respId: 0x7e8 }, { reqId: 0x7e1, respId: 0x7e9 }]);
+});
+
 test("IDENT_DIDS are all F1xx identification DIDs", () => {
   assert.ok(IDENT_DIDS.length >= 5);
   for (const d of IDENT_DIDS) assert.equal(d.id >> 8, 0xf1);

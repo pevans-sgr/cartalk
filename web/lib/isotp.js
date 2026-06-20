@@ -50,7 +50,16 @@ export function reassemble(lines, idHexLen = ID_LEN_29BIT) {
   return result;
 }
 
+// A "response pending" negative single-frame: 0x7F <sid> 0x78. An ECU may emit one (or
+// several) of these before the real multi-frame answer; on a shared CAN id they land in the
+// same group, so drop them when other frames follow (otherwise the pending masks the answer).
+const isPendingSF = (f) =>
+  f.length >= 4 && ((f[0] >> 4) & 0x0f) === 0x0 && f[1] === 0x7f && f[3] === 0x78;
+
 function reassembleOne(frames) {
+  if (frames.length > 1 && frames.some(isPendingSF)) {
+    frames = frames.filter((f) => !isPendingSF(f));
+  }
   if (!frames.length) return new Uint8Array();
   const first = frames[0];
   const pci = (first[0] >> 4) & 0x0f;

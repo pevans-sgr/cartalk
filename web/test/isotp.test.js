@@ -29,6 +29,19 @@ test("two ECUs interleaved", () => {
   assert.deepEqual([...out.get(0x18daf128)], [0x59, 0x02, 0x01]);
 });
 
+test("drops a leading responsePending (0x78) frame and keeps the real multi-frame answer", () => {
+  // The 2018 Pacifica TCM did exactly this: 7F 19 78 (pending), then the real 0x59 reply.
+  const out = reassemble(
+    ["7E9037F1978", "7E9100A5902FF287900", "7E921401DCF00"], ID_LEN_11BIT);
+  assert.deepEqual([...out.get(0x7e9)],
+    [0x59, 0x02, 0xff, 0x28, 0x79, 0x00, 0x40, 0x1d, 0xcf, 0x00]);
+});
+
+test("a lone responsePending frame is returned as-is (so the caller retries)", () => {
+  const out = reassemble(["7E9037F1978"], ID_LEN_11BIT);
+  assert.deepEqual([...out.get(0x7e9)], [0x7f, 0x19, 0x78]);
+});
+
 test("error markers and odd length throw; header-only ignored", () => {
   assert.throws(() => reassemble(["NO DATA"]), FrameError);
   assert.throws(() => reassemble(["18DAF140035902F"]), FrameError);
