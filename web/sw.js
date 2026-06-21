@@ -5,12 +5,12 @@
 // fails (offline), it serves the cached copy. skipWaiting + clients.claim mean a freshly
 // deployed version activates immediately; the page then auto-reloads (see app.js).
 
-const CACHE = "cartalk-v5";
+const CACHE = "cartalk-v6";
 const ASSETS = [
   "./", "./index.html", "./style.css", "./app.js",
   "./manifest.webmanifest", "./icon.svg",
   "./lib/dtc.js", "./lib/isotp.js", "./lib/obd2.js", "./lib/sweep.js",
-  "./lib/ftdi-webusb.js", "./lib/elm327.js",
+  "./lib/dtc-descriptions.js", "./lib/ftdi-webusb.js", "./lib/elm327.js",
 ];
 
 self.addEventListener("install", (event) => {

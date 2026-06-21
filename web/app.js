@@ -7,6 +7,7 @@ import { requestFtdiPort } from "./lib/ftdi-webusb.js";
 import { Elm327 } from "./lib/elm327.js";
 import { GenericObd } from "./lib/obd2.js";
 import { discover, interrogate } from "./lib/sweep.js";
+import { describeDtc } from "./lib/dtc-descriptions.js";
 
 const $ = (id) => document.getElementById(id);
 const REPO = "pevans-sgr/cartalk";   // where "Send session" files an issue
@@ -203,7 +204,10 @@ async function readCodes() {
     const status = await obd.readStatus();
     const section = (title, codes) =>
       `<h2><span>${title}</span></h2>` + (codes.length
-        ? codes.map((c) => `<div class="dtc"><code>${c}</code></div>`).join("")
+        ? codes.map((c) => {
+            const desc = describeDtc(c);
+            return `<div class="dtc"><code>${c}</code>${desc ? `<span>— ${desc}</span>` : ""}</div>`;
+          }).join("")
         : `<div class="none">none</div>`);
     const mil = status ? `<div class="datum"><span class="k">MIL (check engine)</span><span>${status.milOn ? "ON" : "off"}</span></div>` : "";
     $("results").innerHTML = `<div class="module">${mil}`
@@ -337,8 +341,10 @@ function renderSweepModule(m) {
     card.insertAdjacentHTML("beforeend", `<div class="none">No fault codes</div>`);
   }
   for (const d of m.dtcs) {
+    const desc = describeDtc(d.code);
+    const descHtml = desc ? `<span>— ${desc}</span>` : "";
     const flags = d.flags?.length ? `<span class="flags">[${d.flags.join(", ")}]</span>` : "";
-    card.insertAdjacentHTML("beforeend", `<div class="dtc"><code>${d.code}</code>${flags}</div>`);
+    card.insertAdjacentHTML("beforeend", `<div class="dtc"><code>${d.code}</code>${descHtml}${flags}</div>`);
   }
   for (const e of m.errors || []) {
     card.insertAdjacentHTML("beforeend", `<div class="none">${e}</div>`);
@@ -351,7 +357,10 @@ function buildSweepSummary(results) {
   for (const m of results) {
     lines.push(`0x${m.reqId.toString(16).toUpperCase()} → 0x${m.respId.toString(16).toUpperCase()}`);
     for (const [k, v] of Object.entries(m.ident)) lines.push(`    ${k}: ${v}`);
-    for (const d of m.dtcs) lines.push(`    ${d.code}${d.flags?.length ? " [" + d.flags.join(", ") + "]" : ""}`);
+    for (const d of m.dtcs) {
+      const desc = describeDtc(d.code);
+      lines.push(`    ${d.code}${desc ? " — " + desc : ""}${d.flags?.length ? " [" + d.flags.join(", ") + "]" : ""}`);
+    }
     for (const e of m.errors || []) lines.push(`    (${e})`);
   }
   return lines.join("\n");
@@ -417,7 +426,7 @@ function saveSweep() {
     request: `0x${m.reqId.toString(16).toUpperCase()}`,
     response: `0x${m.respId.toString(16).toUpperCase()}`,
     identification: m.ident,
-    dtcs: m.dtcs.map((d) => ({ code: d.code, status: d.status, flags: d.flags })),
+    dtcs: m.dtcs.map((d) => ({ code: d.code, description: describeDtc(d.code), status: d.status, flags: d.flags })),
     errors: m.errors,
   }));
   const url = URL.createObjectURL(new Blob([JSON.stringify(out, null, 2)], { type: "application/json" }));
