@@ -49,6 +49,13 @@ export function supportedFromPayload(payload) {
   return out;
 }
 
+/** Full-resolution control-module voltage (V) from a Mode 01 PID 0x42 payload, or null.
+ *  decodeLive rounds to 0.1 V; the power monitor needs mV resolution to see small sags. */
+export function decodeVoltage(payload) {
+  if (payload.length < 4 || payload[0] !== 0x41 || payload[1] !== 0x42) return null;
+  return (payload[2] * 256 + payload[3]) / 1000;
+}
+
 /** Decode a Mode 01 live response payload ([0x41, pid, ...data]) for the given pid. */
 export function decodeLive(pid, payload) {
   if (payload.length < 3 || payload[0] !== 0x41 || payload[1] !== pid) return null;
@@ -119,6 +126,15 @@ export class GenericObd {
       }
     }
     return out;
+  }
+
+  /** Read control-module voltage (PID 0x42) once, at full mV resolution, or null. */
+  async readVoltage() {
+    for (const p of await this._payloads("0142")) {
+      const v = decodeVoltage(p);
+      if (v != null) return v;
+    }
+    return null;
   }
 
   /**

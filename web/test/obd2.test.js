@@ -1,10 +1,17 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  parsePayloads, supportedFromPayload, decodeLive, parseDtcCodes, parseVin, parseStatus,
+  parsePayloads, supportedFromPayload, decodeLive, decodeVoltage, parseDtcCodes, parseVin, parseStatus,
 } from "../lib/obd2.js";
 
 const u8 = (...b) => Uint8Array.from(b);
+
+test("decodeVoltage: full mV resolution from PID 0x42", () => {
+  // 0x3157 = 12631 mV → 12.631 V (the resting voltage from the van's battery test)
+  assert.equal(decodeVoltage(u8(0x41, 0x42, 0x31, 0x57)), 12.631);
+  assert.equal(decodeVoltage(u8(0x41, 0x42, 0x37, 0x4f)), 14.159);   // charging
+  assert.equal(decodeVoltage(u8(0x41, 0x0c, 0x00, 0x00)), null);     // wrong PID
+});
 
 test("parsePayloads: two ECUs on 11-bit", () => {
   // 7E8 SF len 6: 41 00 BF FE B9 93 ; 7E9 SF len 6: 41 00 98 18 00 01  (from the real van)

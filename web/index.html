@@ -76,9 +76,11 @@
         <li>
           <strong>2. Power monitor</strong>
           <p>
-            Watch module voltage, RPM and run-time live. Leave it running and drive until the fault
-            trips — a voltage sag or spike at that moment implicates the battery sensor / charging
-            path. Stop to download the captured log.
+            Watch module voltage, RPM and run-time live. Voltage is sampled fast (catches the
+            crank dip) and the lowest reading is tracked with its RPM. Keep it running through
+            engine start <em>and</em> several minutes of idle/driving — the fault can hit at
+            startup or minutes later. A sag when "Service Shifter" trips implicates the battery
+            sensor / charging / connection path. Stop to download the captured log.
           </p>
           <div class="buttons">
             <button id="gMonBtn" disabled>Start monitor</button>

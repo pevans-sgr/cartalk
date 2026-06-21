@@ -263,16 +263,21 @@ async function clearCodes() {
 
 // -- guided: shifter / power fault ------------------------------------------
 
-// PIDs that test the IBS / charging hypothesis behind the shifter lock-up.
-const MONITOR_PIDS = [0x42, 0x0c, 0x1f];   // module voltage, RPM, run time
+// Voltage (0x42) is polled fast to catch crank dips and transient sags; RPM (0x0c) and
+// run time (0x1f) are sampled ~1/s for context, so a sag can be labelled crank vs idle vs drive.
+const CONTEXT_PIDS = [0x0c, 0x1f];
 
-function renderMonitor(rows, vmin, vmax, n) {
+function renderMonitor(volts, context, vmin, vmax, vminCtx, n) {
+  const ctxRows = Object.entries(context)
+    .map(([k, v]) => `<div class="datum"><span class="k">${k}</span><span>${v}</span></div>`).join("");
+  const lowAt = vminCtx && vminCtx["Engine RPM"] != null ? ` (at ${vminCtx["Engine RPM"]} rpm)` : "";
   const range = Number.isFinite(vmin)
-    ? `<div class="datum"><span class="k">Voltage min / max</span><span>${vmin.toFixed(1)} / ${vmax.toFixed(1)} V</span></div>`
+    ? `<div class="datum"><span class="k">Voltage min / max</span><span>${vmin.toFixed(2)} / ${vmax.toFixed(2)} V</span></div>`
+      + `<div class="datum"><span class="k">Lowest seen</span><span>${vmin.toFixed(2)} V${lowAt}</span></div>`
     : "";
   $("results").innerHTML = `<div class="module"><h2><span>Power monitor</span><span class="id">${n} samples</span></h2>`
-    + rows.map((r) => `<div class="datum"><span class="k">${r.name}</span><span>${r.value} ${r.unit}</span></div>`).join("")
-    + range + `</div>`;
+    + `<div class="datum"><span class="k">Module voltage</span><span>${volts.toFixed(2)} V</span></div>`
+    + ctxRows + range + `</div>`;
 }
 
 async function toggleMonitor() {
@@ -286,22 +291,33 @@ async function toggleMonitor() {
   $("gMonBtn").textContent = "Stop monitor";
   $("gMonSave").hidden = true;
   $("gMonSave").disabled = true;
-  let vmin = Infinity, vmax = -Infinity;
-  setStatus("Power monitor running — leave it on and drive until the fault trips, then Stop.");
+  let vmin = Infinity, vmax = -Infinity, vminCtx = null;
+  let context = {};                    // latest RPM / run time, carried onto each fast sample
+  let ctxAt = 0, renderAt = 0, errors = 0;
+  setStatus("Power monitor running — keep it on through start AND several minutes of idle/drive until the fault trips, then Stop.");
   while (monRunning) {
     try {
-      const rows = await obd.readPids(MONITOR_PIDS);
-      const sample = { t: new Date().toISOString() };
-      for (const r of rows) sample[r.name] = r.value;
-      monSamples.push(sample);
-      const v = rows.find((r) => r.id === 0x42)?.value;
-      if (v != null) { vmin = Math.min(vmin, v); vmax = Math.max(vmax, v); }
-      renderMonitor(rows, vmin, vmax, monSamples.length);
-    } catch (e) {
-      setStatus("Monitor read error: " + e.message, true);
-      break;
+      const now = Date.now();
+      if (now - ctxAt > 1000) {        // refresh RPM / run time ~once a second
+        const ctx = await obd.readPids(CONTEXT_PIDS);
+        for (const r of ctx) context[r.name] = r.value;
+        ctxAt = now;
+        if (!monRunning) break;
+      }
+      const v = await obd.readVoltage();
+      errors = 0;
+      if (v != null) {
+        monSamples.push({ t: new Date().toISOString(), "Module voltage": v, ...context });
+        if (v < vmin) { vmin = v; vminCtx = { ...context }; }
+        if (v > vmax) vmax = v;
+        if (now - renderAt > 250) { renderMonitor(v, context, vmin, vmax, vminCtx, monSamples.length); renderAt = now; }
+      }
+    } catch (_) {
+      // Reads can fail mid-crank or when a module drops — exactly the moments we care about.
+      // Keep going; only bail if the adapter is persistently unresponsive.
+      if (++errors > 60) { setStatus("Monitor stopped — adapter not responding.", true); break; }
     }
-    await new Promise((r) => setTimeout(r, 500));
+    await new Promise((r) => setTimeout(r, 50));
   }
   monRunning = false;
   setBusy(false);
@@ -310,8 +326,11 @@ async function toggleMonitor() {
   $("gMonSave").hidden = !have;
   $("gMonSave").disabled = !have;
   if (have) {
-    lastSummary = `Power monitor: ${monSamples.length} samples, voltage ${vmin.toFixed(1)}–${vmax.toFixed(1)} V`;
-    setStatus(`Monitor stopped — ${monSamples.length} samples captured (${vmin.toFixed(1)}–${vmax.toFixed(1)} V). Download the log to keep it.`);
+    const lo = Number.isFinite(vmin) ? vmin.toFixed(2) : "?";
+    const hi = Number.isFinite(vmax) ? vmax.toFixed(2) : "?";
+    const at = vminCtx && vminCtx["Engine RPM"] != null ? ` (lowest at ${vminCtx["Engine RPM"]} rpm)` : "";
+    lastSummary = `Power monitor: ${monSamples.length} samples, voltage ${lo}–${hi} V${at}`;
+    setStatus(`Monitor stopped — ${monSamples.length} samples, voltage ${lo}–${hi} V. Download the log to keep it.`);
   }
 }
 
