@@ -107,6 +107,27 @@ export class Elm327 {
     }
   }
 
+  /**
+   * Configure for fast single-ECU OBD polling on the powertrain 11-bit bus: fixed tight
+   * timing and a receive filter locked to one ECU, so each PID read returns in ~tens of ms
+   * instead of waiting on every responder + adaptive timing (which throttled the monitor to
+   * ~one sample / 6 s). Pair with request(reqId, respId, [0x01, pid]); the target is preset so
+   * request() skips re-addressing and just sends.
+   */
+  async setFastObdMode(reqId = 0x7e0, respId = 0x7e8) {
+    await this._command("ATE0");
+    await this._command("ATL0");
+    await this._command("ATS0");
+    await this._command("ATH1");     // headers on → reassemble can demux
+    await this._command("ATSP6");    // ISO 15765-4, 11-bit, 500 kbps (powertrain)
+    await this._command("ATAT0");    // fixed timing — no adaptive wait
+    await this._command("ATST10");   // ~64 ms cap → quick return / fast timeout
+    await this._command(`ATSH${reqId.toString(16).toUpperCase().padStart(3, "0")}`);
+    await this._command(`ATCRA${respId.toString(16).toUpperCase().padStart(3, "0")}`);
+    this._proto = "6";
+    this._target = `${reqId}:${respId}`;   // request() will skip _setTarget and just send
+  }
+
   /** Reset to a clean generic OBD-II state (auto protocol, default headers/filters). */
   async setGenericMode() {
     await this._command("ATD");    // all settings to defaults (clears ATCP/ATSH/filters)

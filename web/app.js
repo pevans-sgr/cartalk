@@ -5,7 +5,7 @@
 
 import { requestFtdiPort } from "./lib/ftdi-webusb.js";
 import { Elm327 } from "./lib/elm327.js";
-import { GenericObd } from "./lib/obd2.js";
+import { GenericObd, decodeVoltage, decodeLive } from "./lib/obd2.js";
 import { discover, interrogate } from "./lib/sweep.js";
 import { describeDtc } from "./lib/dtc-descriptions.js";
 
@@ -263,9 +263,11 @@ async function clearCodes() {
 
 // -- guided: shifter / power fault ------------------------------------------
 
-// Voltage (0x42) is polled fast to catch crank dips and transient sags; RPM (0x0c) and
-// run time (0x1f) are sampled ~1/s for context, so a sag can be labelled crank vs idle vs drive.
-const CONTEXT_PIDS = [0x0c, 0x1f];
+// Poll the PCM directly (single ECU, tight timing) so voltage samples come ~10-20x faster
+// than the old functional broadcast (which waited on every responder). Voltage every loop;
+// RPM (0x0c) + run time (0x1f) ~1/s for context, so a sag can be labelled crank vs idle vs drive.
+const MON_REQ = 0x7e0, MON_RESP = 0x7e8;   // PCM physical request / response (powertrain 11-bit)
+const obdPid = (pid) => Uint8Array.from([0x01, pid]);
 
 function renderMonitor(volts, context, vmin, vmax, vminCtx, n) {
   const ctxRows = Object.entries(context)
@@ -282,11 +284,10 @@ function renderMonitor(volts, context, vmin, vmax, vminCtx, n) {
 
 async function toggleMonitor() {
   if (monRunning) { monRunning = false; return; }
-  try {
-    await ensureObd();
-  } catch (e) { setStatus("OBD init failed: " + e.message, true); return; }
+  if (!elm) return;
   monRunning = true;
   setBusy(true);
+  if (obd) obd.ready = false;          // we reconfigure the ELM; force generic re-init later
   monSamples = [];
   $("gMonBtn").textContent = "Stop monitor";
   $("gMonSave").hidden = true;
@@ -294,17 +295,27 @@ async function toggleMonitor() {
   let vmin = Infinity, vmax = -Infinity, vminCtx = null;
   let context = {};                    // latest RPM / run time, carried onto each fast sample
   let ctxAt = 0, renderAt = 0, errors = 0;
-  setStatus("Power monitor running — keep it on through start AND several minutes of idle/drive until the fault trips, then Stop.");
+  try {
+    setStatus("Configuring fast single-ECU polling…");
+    await elm.setFastObdMode(MON_REQ, MON_RESP);
+  } catch (e) {
+    setStatus("Monitor setup failed: " + e.message, true);
+    monRunning = false; setBusy(false); $("gMonBtn").textContent = "Start monitor";
+    return;
+  }
+  setStatus("Power monitor running (fast) — keep it on through start AND several minutes of idle/drive until the fault trips, then Stop.");
   while (monRunning) {
     try {
       const now = Date.now();
       if (now - ctxAt > 1000) {        // refresh RPM / run time ~once a second
-        const ctx = await obd.readPids(CONTEXT_PIDS);
-        for (const r of ctx) context[r.name] = r.value;
+        for (const pid of [0x0c, 0x1f]) {
+          const r = decodeLive(pid, await elm.request(MON_REQ, MON_RESP, obdPid(pid)));
+          if (r) context[r.name] = r.value;
+        }
         ctxAt = now;
         if (!monRunning) break;
       }
-      const v = await obd.readVoltage();
+      const v = decodeVoltage(await elm.request(MON_REQ, MON_RESP, obdPid(0x42)));
       errors = 0;
       if (v != null) {
         monSamples.push({ t: new Date().toISOString(), "Module voltage": v, ...context });
@@ -315,9 +326,9 @@ async function toggleMonitor() {
     } catch (_) {
       // Reads can fail mid-crank or when a module drops — exactly the moments we care about.
       // Keep going; only bail if the adapter is persistently unresponsive.
-      if (++errors > 60) { setStatus("Monitor stopped — adapter not responding.", true); break; }
+      if (++errors > 100) { setStatus("Monitor stopped — adapter not responding.", true); break; }
     }
-    await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 20));
   }
   monRunning = false;
   setBusy(false);
@@ -329,7 +340,7 @@ async function toggleMonitor() {
     const lo = Number.isFinite(vmin) ? vmin.toFixed(2) : "?";
     const hi = Number.isFinite(vmax) ? vmax.toFixed(2) : "?";
     const at = vminCtx && vminCtx["Engine RPM"] != null ? ` (lowest at ${vminCtx["Engine RPM"]} rpm)` : "";
-    lastSummary = `Power monitor: ${monSamples.length} samples, voltage ${lo}–${hi} V${at}`;
+    lastSummary = `Power monitor (PCM 0x7E0, fast): ${monSamples.length} samples, voltage ${lo}–${hi} V${at}`;
     setStatus(`Monitor stopped — ${monSamples.length} samples, voltage ${lo}–${hi} V. Download the log to keep it.`);
   }
 }

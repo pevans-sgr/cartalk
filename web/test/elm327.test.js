@@ -31,7 +31,7 @@ class LoopbackStream {
     if (cmd.startsWith("AT")) return enc.encode("OK\r>");
     const resp = this.ecus[`${this.recvId}:${cmd}`];
     if (!resp) return enc.encode("NO DATA\r>");
-    const idHex = this.recvId.toString(16).toUpperCase().padStart(8, "0");
+    const idHex = this.recvId.toString(16).toUpperCase().padStart(this.recvId > 0x7ff ? 8 : 3, "0");
     const lines = isotpEncode(resp).map(
       (f) => idHex + f.map((b) => b.toString(16).toUpperCase().padStart(2, "0")).join(""));
     return enc.encode(lines.join("\r") + "\r>");
@@ -58,4 +58,13 @@ test("Elm327.request reassembles a multi-frame VIN DID", async () => {
   await elm.open();
   const bytes = await elm.request(BCM, BCM_RESP, Uint8Array.from([0x22, 0xf1, 0x90]));
   assert.equal(dec.decode(bytes.slice(3)), VIN);
+});
+
+test("setFastObdMode + request reads a single 11-bit ECU (power monitor path)", async () => {
+  // PCM at 0x7E0/0x7E8 answers mode-01 PID 0x42 (voltage): 0x38D2 = 14.546 V.
+  const elm = new Elm327(new LoopbackStream({ [`${0x7e8}:0142`]: [0x41, 0x42, 0x38, 0xd2] }));
+  await elm.open();
+  await elm.setFastObdMode(0x7e0, 0x7e8);
+  const resp = await elm.request(0x7e0, 0x7e8, Uint8Array.from([0x01, 0x42]));
+  assert.deepEqual([...resp], [0x41, 0x42, 0x38, 0xd2]);
 });
