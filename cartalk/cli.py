@@ -143,6 +143,7 @@ def _cmd_monitor(args) -> int:
         sag_volts=args.sag_volts, watch_codes=tuple(args.watch),
         sleep_timeout=args.sleep_timeout, batt_floor=args.batt_floor,
         enable_actions=not args.no_actions,
+        led=None if args.no_led else args.led,
     )
     daemon = MonitorDaemon(source, cfg)
 
@@ -266,6 +267,9 @@ def build_parser() -> argparse.ArgumentParser:
                      help="resting-voltage floor for protective shutdown")
     mon.add_argument("--no-actions", action="store_true",
                      help="dry-run lifecycle side effects (wifi/cpu/halt) — for off-vehicle testing")
+    mon.add_argument("--led", default="ACT",
+                     help="onboard status-LED name under /sys/class/leds (default: ACT)")
+    mon.add_argument("--no-led", action="store_true", help="disable the status LED")
     mon.set_defaults(func=_cmd_monitor)
 
     diag = sub.add_parser("diagnose", help="AI-assisted diagnosis of a scan JSON file")

@@ -62,6 +62,25 @@ re-associates, the tunnel comes back, you review what was caught.
 
 ---
 
+## Status LED (the onboard green ACT light)
+
+The monitor repurposes the Pi Zero's single green **ACT** LED (`/sys/class/leds/ACT`) as a
+no-screen status indicator, so you can confirm it's armed before cranking:
+
+| LED | Meaning |
+|-----|---------|
+| **heartbeat** (double-pulse) | process up, but not yet reading the van (adapter waiting / car asleep) |
+| **solid on** | reading the live bus right now — **armed, safe to crank** |
+| **fast blink** | a fault capture is in progress |
+
+**Pre-crank workflow:** key the van to **RUN** (engine off) and wait for the LED to go
+**solid** — that means the monitor already sees the bus awake and will capture from the very
+first instant of the start — *then* crank. It goes solid within ~1–2 s of the bus waking (or
+after boot, ~1 min, if the Pi cold-started with the car).
+
+The original LED trigger (SD-activity) is restored on a clean stop. Disable with
+`--no-led`, or point at a different LED with `--led <name>` (see `/sys/class/leds`).
+
 ## Hardware & power (Phase 1)
 
 You need, beyond the Pi Zero W (header soldered — good, that's for Phase 2):

@@ -20,6 +20,7 @@ import time
 from dataclasses import dataclass, field
 
 from .hooks import PiHooks
+from .led import StatusLed
 from .lifecycle import Lifecycle, State
 from .source import ElmSource
 from .store import EventStore, utc_now_iso
@@ -50,6 +51,7 @@ class MonitorConfig:
     batt_floor_grace: float = 120.0
     parked_log_interval: float = 30.0  # sparse sample logging while parked, to spare the SD
     enable_actions: bool = True        # set False to dry-run hooks off-vehicle
+    led: str | None = "ACT"            # onboard status-LED name; None/"" to disable
 
 
 def log(msg: str) -> None:
@@ -76,6 +78,7 @@ class MonitorDaemon:
             batt_floor=cfg.batt_floor, batt_floor_grace=cfg.batt_floor_grace)
         self.triggers = TriggerSet(sag_volts=cfg.sag_volts, watch_codes=cfg.watch_codes)
         self.ring = RingBuffer(window_seconds=cfg.pre_window)
+        self.led = StatusLed(cfg.led, log=log)
 
         self._stop = threading.Event()
         self._started = time.monotonic()
@@ -102,6 +105,7 @@ class MonitorDaemon:
         threading.Thread(target=self._server.serve_forever, daemon=True).start()
         log(f"monitor up — http://{self.cfg.http_host}:{self.cfg.http_port}  "
             f"data dir {self.cfg.data_dir}")
+        self.led.heartbeat()  # alive, not yet reading the van
         # Connect to the adapter, retrying until it appears — it may be unplugged at boot
         # or enumerate a little after us in the car. Never fatal; the status page stays up.
         if not self._connect_with_retry():
@@ -137,6 +141,7 @@ class MonitorDaemon:
         return False
 
     def _teardown(self) -> None:
+        self.led.close()
         self.source.close()
         if self._server is not None:
             self._server.shutdown()
@@ -169,11 +174,22 @@ class MonitorDaemon:
         self._n_samples += 1
         self._record_sample(sample, state)
         self._update_status(sample, state)
+        self._drive_led(sample)
 
         for event in self.triggers.evaluate(sample):
             self._on_trigger(event, sample)
 
         self._service_capture(now, sample)
+
+    def _drive_led(self, sample: Sample) -> None:
+        # fast blink while capturing a fault; solid when reading the live bus (safe to
+        # crank); heartbeat otherwise (alive but the bus is asleep / adapter quiet).
+        if self._capture is not None:
+            self.led.fast_blink()
+        elif sample.car_awake:
+            self.led.solid()
+        else:
+            self.led.heartbeat()
 
     # -- triggers & capture -------------------------------------------------
 
