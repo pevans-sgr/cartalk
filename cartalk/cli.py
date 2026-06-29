@@ -142,6 +142,7 @@ def _cmd_monitor(args) -> int:
         data_dir=args.data_dir, http_host=args.host, http_port=args.http_port,
         sag_volts=args.sag_volts, watch_codes=tuple(args.watch),
         sleep_timeout=args.sleep_timeout, batt_floor=args.batt_floor,
+        dtc_interval=args.dtc_interval,
         enable_actions=not args.no_actions,
         led=None if args.no_led else args.led,
     )
@@ -261,6 +262,9 @@ def build_parser() -> argparse.ArgumentParser:
                      help="voltage-sag trigger threshold")
     mon.add_argument("--watch", nargs="+", default=["U1465", "U1267"],
                      help="DTC codes to watch mature")
+    mon.add_argument("--dtc-interval", type=float, default=30.0,
+                     help="seconds between full TCM DTC reads (kept high so it doesn't "
+                          "block fast voltage sampling)")
     mon.add_argument("--sleep-timeout", type=float, default=1200.0,
                      help="seconds parked before entering low-power SLEEP")
     mon.add_argument("--batt-floor", type=float, default=11.8,

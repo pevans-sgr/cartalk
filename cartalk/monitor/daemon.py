@@ -37,7 +37,10 @@ class MonitorConfig:
     active_interval: float = 0.3
     parked_interval: float = 2.0
     sleep_interval: float = 2.0
-    dtc_interval: float = 4.0          # how often to read TCM DTCs while awake
+    dtc_interval: float = 30.0         # how often to read TCM DTCs while awake (a full
+                                       # 40-DTC read is slow and blocks the fast voltage
+                                       # loop, so keep it infrequent; a tripped fault
+                                       # latches, so 30s still catches it "in the act")
     # capture window around a trigger (seconds)
     pre_window: float = 120.0
     post_window: float = 30.0
@@ -159,10 +162,15 @@ class MonitorDaemon:
             t=now, wall=utc_now_iso(), volts=power.volts, rpm=power.rpm,
             car_awake=power.ok, state=self.lifecycle.state.value)
 
-        # Read watched DTCs on their own slower cadence, only while the car is awake.
-        if power.ok and (now - self._last_dtc_read) >= self._dtc_interval():
+        # Read watched DTCs on their own slow cadence, only while the car is awake. This
+        # is the one expensive read (full multi-frame), so it's deliberately infrequent.
+        if power.ok and (now - self._last_dtc_read) >= self.cfg.dtc_interval:
+            t0 = time.monotonic()
             try:
                 sample.dtc_status = self.source.read_watch_dtcs()
+                dur = time.monotonic() - t0
+                if dur > 1.0:  # surface how long the DTC read actually blocks the loop
+                    log(f"dtc read took {dur:.1f}s")
             except Exception as e:
                 sample.note = f"dtc read failed: {e}"
             self._last_dtc_read = now
@@ -253,10 +261,6 @@ class MonitorDaemon:
         return {State.ACTIVE: self.cfg.active_interval,
                 State.PARKED_AWAKE: self.cfg.parked_interval,
                 State.SLEEP: self.cfg.sleep_interval}[self.lifecycle.state]
-
-    def _dtc_interval(self) -> float:
-        # Read DTCs more aggressively while capturing, to catch the maturation moment.
-        return 1.0 if self._capture is not None else self.cfg.dtc_interval
 
     def _reconnect(self, backoff: float) -> None:
         self.source.close()
