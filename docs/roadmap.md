@@ -65,6 +65,22 @@ Build out parameter definitions by capturing known operations.
 - [ ] Scripting/automation examples (batch scans, scheduled health checks)
 - [ ] Public, versioned database with review process
 
+## Headless in-vehicle monitor (Pi Zero W) — catch the shifter fault in the act
+A dedicated always-on logger that captures the intermittent fault at the moment it trips
+and survives the car's power cycles. Full design + deployment: [`pi-monitor.md`](pi-monitor.md).
+- [x] **Phase 1 (software, USB ELM327)** — `cartalk monitor`: voltage-sag + DTC-maturation
+      triggers with pre/post-window capture; ACTIVE/PARKED-AWAKE/SLEEP lifecycle (pure,
+      unit-tested); battery-protection floor; localhost status page (stdlib); SD logging
+      decoupled from networking; systemd unit + udev rule + Cloudflare-tunnel config +
+      install script. 12 new tests; daemon smoke-tested end-to-end with a fake source.
+- [ ] **Phase 1 field validation** — run on the van; measure parasitic draw over long parks
+      (decides whether Phase 2 wake hardware is needed); catch a real fault snapshot.
+- [ ] **Phase 2 (MCP2515 CAN HAT)** — `CanSource` behind the same interface: passive
+      SocketCAN frame logging (µs timestamps), GEAR/PRNDL `0x2EA` decode, bus-dropout
+      capture. Gated on a `candump` test that broadcast frames reach the OBD port via SGW.
+- [ ] **Phase 2 (hardware wake)** — comparator → GPIO3 wake-from-halt for true deep sleep
+      with auto-wake on car-start (removes the terminal protective-halt limitation).
+
 ## Open decisions
 - **License.** GPLv3 keeps derived databases open (good for a community DB); MIT
   maximizes adoption. Recommendation: **GPLv3 for the database**, with the option of a

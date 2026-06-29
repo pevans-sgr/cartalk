@@ -1,0 +1,29 @@
+[Unit]
+Description=cartalk in-vehicle fault monitor
+Documentation=https://github.com/pevans-sgr/cartalk/blob/master/docs/pi-monitor.md
+# Start regardless of network — monitoring must not wait for Wi-Fi (there's none on the road).
+After=local-fs.target
+Wants=local-fs.target
+
+[Service]
+Type=simple
+# Runs as root: it toggles Wi-Fi (rfkill), the CPU governor, and can issue a protective
+# poweroff, and it opens the serial port. For a dedicated appliance Pi this is fine; see
+# docs/pi-monitor.md for the unprivileged (dialout + polkit) alternative.
+User=root
+# The udev rule in deploy/99-cartalk-elm.rules gives the FTDI a stable name so a USB
+# renumber doesn't break us. Falls back to /dev/ttyUSB0 if you skip the rule.
+ExecStart=/usr/local/bin/cartalk monitor \
+    --port /dev/cartalk-elm \
+    --data-dir /var/lib/cartalk \
+    --host 127.0.0.1 --http-port 8088
+# Survive crashes and adapter glitches; the daemon also self-reconnects internally.
+Restart=always
+RestartSec=5
+# Clean stop: SIGTERM is handled to flush and exit.
+KillSignal=SIGTERM
+TimeoutStopSec=15
+StateDirectory=cartalk
+
+[Install]
+WantedBy=multi-user.target

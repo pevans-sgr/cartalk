@@ -1,0 +1,27 @@
+# Cloudflare Tunnel config for publishing the monitor's localhost status page to
+# evans-apps.org. The tunnel only carries traffic when the Pi has internet — i.e. parked
+# in the garage on home Wi-Fi — which is exactly when you'd review a caught fault.
+#
+# One-time setup (on the Pi, after `cloudflared login`):
+#   cloudflared tunnel create cartalk
+#   cloudflared tunnel route dns cartalk monitor.evans-apps.org
+#   sudo cp deploy/cloudflared-config.example.yml /etc/cloudflared/config.yml
+#   # edit the tunnel UUID + credentials path below, then:
+#   sudo cloudflared service install
+#   sudo systemctl enable --now cloudflared
+#
+# cloudflared retries on its own with backoff, so losing Wi-Fi on a drive and regaining it
+# in the garage re-establishes the tunnel with no intervention.
+
+tunnel: REPLACE-WITH-TUNNEL-UUID
+credentials-file: /root/.cloudflared/REPLACE-WITH-TUNNEL-UUID.json
+
+# Don't fail if the daemon is briefly down (e.g. mid-restart).
+originRequest:
+  connectTimeout: 10s
+  noTLSVerify: true
+
+ingress:
+  - hostname: monitor.evans-apps.org
+    service: http://127.0.0.1:8088
+  - service: http_status:404

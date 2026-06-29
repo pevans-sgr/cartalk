@@ -62,9 +62,23 @@ def reassemble(lines: list[str], id_hex_len: int = ID_LEN_29BIT) -> dict[int, by
     return {cid: _reassemble_one(frames_by_id[cid]) for cid in order}
 
 
+def _is_pending_sf(frame: bytes) -> bool:
+    """A ``0x7F <sid> 0x78`` responsePending single-frame (PCI 0x03, NRC 0x78)."""
+    return (len(frame) >= 4 and (frame[0] >> 4) & 0x0F == 0x0
+            and frame[1] == 0x7F and frame[3] == 0x78)
+
+
 def _reassemble_one(frames: list[bytes]) -> bytes:
     if not frames:
         return b""
+    # An ECU may emit one or more "responsePending" (0x7F..0x78) single-frames before the
+    # real answer arrives on the same CAN id — the 2018 Pacifica TCM does this for service
+    # 0x19 (ReadDTCInformation). Drop them when real frames follow, so the pending frame
+    # doesn't mask the actual multi-frame DTC payload. (Ported from web/lib/isotp.js.)
+    if len(frames) > 1 and any(_is_pending_sf(f) for f in frames):
+        real = [f for f in frames if not _is_pending_sf(f)]
+        if real:
+            frames = real
     first = frames[0]
     pci_type = (first[0] >> 4) & 0x0F
 

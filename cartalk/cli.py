@@ -126,6 +126,36 @@ def _cmd_live(args) -> int:
     return 0
 
 
+def _cmd_monitor(args) -> int:
+    import signal
+    from .monitor.daemon import MonitorConfig, MonitorDaemon, log
+    from .monitor.source import ElmSource
+
+    if not args.port:
+        print("monitor needs --port (e.g. /dev/ttyUSB0)", file=sys.stderr)
+        return 1
+    from .transport.elm327 import Elm327Transport
+    transport = Elm327Transport(args.port)
+    source = ElmSource(transport, watch_codes=tuple(args.watch))
+
+    cfg = MonitorConfig(
+        data_dir=args.data_dir, http_host=args.host, http_port=args.http_port,
+        sag_volts=args.sag_volts, watch_codes=tuple(args.watch),
+        sleep_timeout=args.sleep_timeout, batt_floor=args.batt_floor,
+        enable_actions=not args.no_actions,
+    )
+    daemon = MonitorDaemon(source, cfg)
+
+    def _shutdown(signum, _frame):
+        log(f"signal {signum} — shutting down")
+        daemon.stop()
+
+    signal.signal(signal.SIGTERM, _shutdown)
+    signal.signal(signal.SIGINT, _shutdown)
+    daemon.run()
+    return 0
+
+
 def _cmd_serve(args) -> int:
     # Configure the ASGI app via environment, then run uvicorn.
     import os
@@ -219,6 +249,24 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--tcp", metavar="HOST:PORT", help="WiFi/bridge adapter address (tcp)")
     serve.add_argument("--port-path", metavar="PATH", help="serial port (elm327)")
     serve.set_defaults(func=_cmd_serve)
+
+    mon = sub.add_parser("monitor", help="headless in-vehicle fault monitor (Pi Zero W)")
+    mon.add_argument("--port", help="serial port of the ELM327, e.g. /dev/ttyUSB0")
+    mon.add_argument("--data-dir", default="/var/lib/cartalk",
+                     help="where to write the rolling log + event snapshots")
+    mon.add_argument("--host", default="127.0.0.1", help="status page bind host")
+    mon.add_argument("--http-port", type=int, default=8088, help="status page port")
+    mon.add_argument("--sag-volts", type=float, default=11.0,
+                     help="voltage-sag trigger threshold")
+    mon.add_argument("--watch", nargs="+", default=["U1465", "U1267"],
+                     help="DTC codes to watch mature")
+    mon.add_argument("--sleep-timeout", type=float, default=1200.0,
+                     help="seconds parked before entering low-power SLEEP")
+    mon.add_argument("--batt-floor", type=float, default=11.8,
+                     help="resting-voltage floor for protective shutdown")
+    mon.add_argument("--no-actions", action="store_true",
+                     help="dry-run lifecycle side effects (wifi/cpu/halt) — for off-vehicle testing")
+    mon.set_defaults(func=_cmd_monitor)
 
     diag = sub.add_parser("diagnose", help="AI-assisted diagnosis of a scan JSON file")
     diag.add_argument("scan_file")

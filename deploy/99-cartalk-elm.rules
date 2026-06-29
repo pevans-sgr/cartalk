@@ -1,0 +1,10 @@
+# Stable name for the vLinker FS (FTDI FT230X) so a USB renumber never changes the port.
+# The daemon then opens /dev/cartalk-elm instead of the volatile /dev/ttyUSBn.
+#
+#   sudo cp deploy/99-cartalk-elm.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload && sudo udevadm trigger
+#
+# If you have more than one FTDI device, narrow the match by serial: add
+#   ATTRS{serial}=="XXXXXXXX"
+# (find it with: udevadm info -a -n /dev/ttyUSB0 | grep '{serial}')
+SUBSYSTEM=="tty", ATTRS{idVendor}=="0403", ATTRS{idProduct}=="6015", SYMLINK+="cartalk-elm"

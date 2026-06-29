@@ -44,6 +44,26 @@ class TestMultiFrame(unittest.TestCase):
         self.assertEqual(out[0x18DAF128], bytes([0x59, 0x02, 0x01]))
 
 
+class TestResponsePending(unittest.TestCase):
+    def test_drops_leading_pending_before_multiframe(self):
+        # The 2018 Pacifica TCM (0x7E9) answers 0x19 with a 0x7F1978 responsePending SF,
+        # then the real multi-frame DTC payload on the same id. The pending frame must be
+        # dropped, not returned as the answer.
+        out = reassemble([
+            "7E9 03 7F 19 78",              # responsePending single-frame
+            "7E9 10 0A 59 02 FF 14 65 01",  # first frame: total len 0x0A
+            "7E9 21 12 67 28 04",           # consecutive frame
+        ], id_hex_len=ID_LEN_11BIT)
+        self.assertEqual(out[0x7E9],
+                         bytes([0x59, 0x02, 0xFF, 0x14, 0x65, 0x01, 0x12, 0x67, 0x28, 0x04]))
+
+    def test_lone_pending_still_returned(self):
+        # With no real answer following, the pending frame is the only thing to return
+        # (the UDS client's 0x78 retry then handles it).
+        out = reassemble(["7E9 03 7F 19 78"], id_hex_len=ID_LEN_11BIT)
+        self.assertEqual(out[0x7E9], bytes([0x7F, 0x19, 0x78]))
+
+
 class TestErrors(unittest.TestCase):
     def test_error_marker_raises(self):
         with self.assertRaises(FrameError):
