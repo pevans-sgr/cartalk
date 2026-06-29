@@ -15,6 +15,8 @@ need confirmation on the ELM327 emulator and on-vehicle — see ``docs/elm327-no
 
 from __future__ import annotations
 
+import time
+
 from ..protocol import elm_frames
 from .base import Transport, TransportError
 
@@ -140,14 +142,20 @@ class Elm327Transport(Transport):
 
     def _command(self, cmd: str, timeout: float = 2.0) -> str:
         assert self._serial is not None
-        self._serial.timeout = timeout
+        # Use a short per-read timeout and stop the instant the '>' prompt arrives, with
+        # `timeout` as the overall deadline. A blocking read(64) used to wait out the full
+        # timeout for bytes that never came, so every short reply cost ~1s — which starved
+        # the monitor's fast voltage sampling. Now a short reply returns in ~its wire time.
+        self._serial.timeout = 0.02
         self._serial.reset_input_buffer()
         self._serial.write((cmd + "\r").encode("ascii"))
         # ELM responses terminate with the '>' prompt.
+        deadline = time.monotonic() + timeout
         buf = bytearray()
         while b">" not in buf:
             chunk = self._serial.read(64)
-            if not chunk:
+            if chunk:
+                buf += chunk
+            elif time.monotonic() >= deadline:
                 raise TransportError(f"adapter timeout on command: {cmd}")
-            buf += chunk
         return buf.decode("ascii", errors="replace").replace(">", "").strip()

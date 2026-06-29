@@ -31,6 +31,12 @@ TCM_REQ, TCM_RESP = 0x7E1, 0x7E9
 PID_VOLTAGE = 0x42
 PID_RPM = 0x0C
 
+# Only ask the TCM for DTCs that are failing/pending/confirmed — not the ~37 readiness-noise
+# codes (status 0x40). Reading all 40 makes the TCM stall ~6.7s on responsePending and blocks
+# fast voltage sampling; a filtered read returns a handful and is far quicker (if the module
+# honours the mask). 0x2F = testFailed|thisCycle|pending|confirmed|failedSinceClear.
+WATCH_STATUS_MASK = 0x2F
+
 
 @dataclass
 class PowerReading:
@@ -96,7 +102,7 @@ class ElmSource:
         Raises on a transport/UDS failure so the daemon can tell "TCM didn't answer" from
         "TCM answered, code absent"."""
         out: dict[str, int] = {}
-        for dtc in self._tcm.read_dtcs():
+        for dtc in self._tcm.read_dtcs(status_mask=WATCH_STATUS_MASK):
             if dtc.code in self.watch_codes:
                 out[dtc.code] = dtc.status
         return out
