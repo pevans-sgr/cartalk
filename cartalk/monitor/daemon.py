@@ -46,6 +46,7 @@ class MonitorConfig:
     post_window: float = 30.0
     # trigger thresholds
     sag_volts: float = 11.0
+    sag_consecutive: int = 2           # consecutive sub-threshold samples before firing
     watch_codes: tuple[str, ...] = ("U1465", "U1267")
     # lifecycle
     sleep_timeout: float = 1200.0
@@ -79,7 +80,9 @@ class MonitorDaemon:
         self.lifecycle = Lifecycle(
             self.hooks, sleep_timeout=cfg.sleep_timeout, park_debounce=cfg.park_debounce,
             batt_floor=cfg.batt_floor, batt_floor_grace=cfg.batt_floor_grace)
-        self.triggers = TriggerSet(sag_volts=cfg.sag_volts, watch_codes=cfg.watch_codes)
+        self.triggers = TriggerSet(sag_volts=cfg.sag_volts,
+                                   sag_consecutive=cfg.sag_consecutive,
+                                   watch_codes=cfg.watch_codes)
         self.ring = RingBuffer(window_seconds=cfg.pre_window)
         self.led = StatusLed(cfg.led, log=log)
 

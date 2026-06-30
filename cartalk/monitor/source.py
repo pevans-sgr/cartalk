@@ -31,6 +31,11 @@ TCM_REQ, TCM_RESP = 0x7E1, 0x7E9
 PID_VOLTAGE = 0x42
 PID_RPM = 0x0C
 
+# A control-module voltage below this is not a real reading — the module couldn't answer at
+# all under ~4V. In practice the PCM returns 0x0000 (decodes to 0.00V) during the noisy crank
+# moment; treat anything implausibly low as a failed read so it can't fake a brownout.
+MIN_VALID_VOLTS = 4.0
+
 # Only ask the TCM for DTCs that are failing/pending/confirmed — not the ~37 readiness-noise
 # codes (status 0x40). Reading all 40 makes the TCM stall ~6.7s on responsePending and blocks
 # fast voltage sampling; a filtered read returns a handful and is far quicker (if the module
@@ -49,7 +54,10 @@ def _decode_voltage(resp: bytes) -> float | None:
     # Mode-01 0x42 reply: 0x41 0x42 <hi> <lo>, volts = (hi*256+lo)/1000.
     if len(resp) < 4 or resp[0] != 0x41 or resp[1] != PID_VOLTAGE:
         return None
-    return (resp[2] * 256 + resp[3]) / 1000.0
+    volts = (resp[2] * 256 + resp[3]) / 1000.0
+    if volts < MIN_VALID_VOLTS:
+        return None  # 0x0000 / crank-noise artifact, not a real brownout
+    return volts
 
 
 def _decode_rpm(resp: bytes) -> float | None:

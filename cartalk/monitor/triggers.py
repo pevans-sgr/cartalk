@@ -97,23 +97,35 @@ class TriggerSet:
     """
 
     def __init__(self, *, sag_volts: float = 11.0, clear_volts: float | None = None,
+                 sag_consecutive: int = 2,
                  watch_codes: tuple[str, ...] = DEFAULT_WATCH_CODES):
         self.sag_volts = sag_volts
         # Hysteresis: must recover above this before another sag can fire.
         self.clear_volts = clear_volts if clear_volts is not None else sag_volts + 0.5
+        # Require this many consecutive sub-threshold samples before firing, so a single
+        # glitchy reading (e.g. a crank-moment artifact) can't trip a false brownout.
+        self.sag_consecutive = max(1, sag_consecutive)
         self.watch_codes = watch_codes
         self._sagging = False
+        self._sag_count = 0
         self._prev_status: dict[str, int] = {}
 
     def evaluate(self, s: Sample) -> list[TriggerEvent]:
         events: list[TriggerEvent] = []
 
+        # A None reading (failed/invalid, incl. the <4V crank artifact) is not evidence of a
+        # sag and must not reset a run in progress — just skip it this tick.
         if s.volts is not None:
-            if not self._sagging and s.volts < self.sag_volts:
-                self._sagging = True
-                events.append(TriggerEvent(
-                    "voltage_sag", f"voltage {s.volts:.2f} V < {self.sag_volts:.2f} V", s))
-            elif self._sagging and s.volts >= self.clear_volts:
+            if s.volts < self.sag_volts:
+                self._sag_count += 1
+                if not self._sagging and self._sag_count >= self.sag_consecutive:
+                    self._sagging = True
+                    events.append(TriggerEvent(
+                        "voltage_sag",
+                        f"voltage {s.volts:.2f} V < {self.sag_volts:.2f} V "
+                        f"for {self._sag_count} samples", s))
+            elif s.volts >= self.clear_volts:
+                self._sag_count = 0
                 self._sagging = False
 
         for code in self.watch_codes:

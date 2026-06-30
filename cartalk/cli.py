@@ -140,7 +140,8 @@ def _cmd_monitor(args) -> int:
 
     cfg = MonitorConfig(
         data_dir=args.data_dir, http_host=args.host, http_port=args.http_port,
-        sag_volts=args.sag_volts, watch_codes=tuple(args.watch),
+        sag_volts=args.sag_volts, sag_consecutive=args.sag_consecutive,
+        watch_codes=tuple(args.watch),
         sleep_timeout=args.sleep_timeout, batt_floor=args.batt_floor,
         dtc_interval=args.dtc_interval,
         enable_actions=not args.no_actions,
@@ -260,6 +261,8 @@ def build_parser() -> argparse.ArgumentParser:
     mon.add_argument("--http-port", type=int, default=8088, help="status page port")
     mon.add_argument("--sag-volts", type=float, default=11.0,
                      help="voltage-sag trigger threshold")
+    mon.add_argument("--sag-consecutive", type=int, default=2,
+                     help="consecutive sub-threshold samples required to fire (glitch reject)")
     mon.add_argument("--watch", nargs="+", default=["U1465", "U1267"],
                      help="DTC codes to watch mature")
     mon.add_argument("--dtc-interval", type=float, default=30.0,

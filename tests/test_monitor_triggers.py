@@ -21,17 +21,36 @@ class TestRingBuffer(unittest.TestCase):
 
 
 class TestVoltageSag(unittest.TestCase):
-    def test_fires_once_on_dip(self):
-        ts = TriggerSet(sag_volts=11.0)
+    def test_fires_after_consecutive_dips(self):
+        ts = TriggerSet(sag_volts=11.0, sag_consecutive=2)
         self.assertEqual(ts.evaluate(s(0, volts=13.5)), [])
-        events = ts.evaluate(s(1, volts=10.5))
+        self.assertEqual(ts.evaluate(s(1, volts=10.5)), [])   # 1st low: not yet
+        events = ts.evaluate(s(2, volts=10.4))                 # 2nd low: fires
         self.assertEqual(len(events), 1)
         self.assertEqual(events[0].kind, "voltage_sag")
         # Still low -> does not re-fire (edge-triggered).
-        self.assertEqual(ts.evaluate(s(2, volts=10.4)), [])
+        self.assertEqual(ts.evaluate(s(3, volts=10.3)), [])
+
+    def test_single_glitch_does_not_fire(self):
+        # One low sample bracketed by good ones (e.g. a crank artifact) must not trip.
+        ts = TriggerSet(sag_volts=11.0, sag_consecutive=2)
+        ts.evaluate(s(0, volts=12.6))
+        self.assertEqual(ts.evaluate(s(1, volts=10.0)), [])   # lone dip
+        self.assertEqual(ts.evaluate(s(2, volts=12.6)), [])   # recovered
+
+    def test_none_does_not_break_a_run(self):
+        # A failed/invalid read (None) mid-dip must not reset the consecutive count.
+        ts = TriggerSet(sag_volts=11.0, sag_consecutive=2)
+        self.assertEqual(ts.evaluate(s(0, volts=10.5)), [])   # 1st low
+        self.assertEqual(ts.evaluate(s(1, volts=None)), [])   # skipped
+        self.assertEqual(len(ts.evaluate(s(2, volts=10.4))), 1)  # 2nd low -> fires
+
+    def test_consecutive_one_fires_immediately(self):
+        ts = TriggerSet(sag_volts=11.0, sag_consecutive=1)
+        self.assertEqual(len(ts.evaluate(s(0, volts=10.5))), 1)
 
     def test_rearms_after_recovery(self):
-        ts = TriggerSet(sag_volts=11.0)  # clear at 11.5 by default
+        ts = TriggerSet(sag_volts=11.0, sag_consecutive=1)  # clear at 11.5 by default
         ts.evaluate(s(0, volts=10.5))     # fires
         ts.evaluate(s(1, volts=11.6))     # recovered above hysteresis
         self.assertEqual(len(ts.evaluate(s(2, volts=10.0))), 1)  # fires again
